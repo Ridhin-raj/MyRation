@@ -98,8 +98,8 @@ if (!fs.existsSync(uploadsDir)) {
 app.listen(PORT, () => {
   console.log(`
   ╔══════════════════════════════════════════════╗
-  ║   🇮🇳 Ration Management System Backend       ║
-  ║   Server running on: http://localhost:${PORT}   ║
+  ║   🇮🇳 Ration Management System Backend         ║
+  ║   Server running on: http://localhost:${PORT} ║
   ║   API Base URL: http://localhost:${PORT}/api   ║
   ╚══════════════════════════════════════════════╝
   `);

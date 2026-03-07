@@ -193,9 +193,24 @@ async function setup() {
 
     // Insert Quota
     const quotas = [
+      ['APL', 'Rice', '5 kg', '₹15/kg'],
+      ['APL', 'Wheat', '5 kg', '₹10/kg'],
+      ['APL', 'Sugar', '1 kg', '₹13/kg'],
+      ['APL', 'Kerosene', '3 L', '₹20/L'],
       ['BPL', 'Rice', '10 kg', '₹3/kg'],
       ['BPL', 'Wheat', '10 kg', '₹2/kg'],
-      ['BPL', 'Sugar', '1 kg', '₹13/kg']
+      ['BPL', 'Sugar', '1 kg', '₹13/kg'],
+      ['BPL', 'Kerosene', '5 L', '₹15/L'],
+      ['BPL', 'Dal', '1 kg', '₹15/kg'],
+      ['AAY', 'Rice', '15 kg', '₹2/kg'],
+      ['AAY', 'Wheat', '20 kg', '₹1/kg'],
+      ['AAY', 'Sugar', '1 kg', '₹13/kg'],
+      ['AAY', 'Kerosene', '5 L', '₹15/L'],
+      ['AAY', 'Dal', '2 kg', '₹10/kg'],
+      ['PHH', 'Rice', '5 kg', '₹1/kg'],
+      ['PHH', 'Wheat', '5 kg', '₹2/kg'],
+      ['PHH', 'Sugar', '1 kg', '₹13/kg'],
+      ['PHH', 'Kerosene', '4 L', '₹15/L']
     ];
     for (const q of quotas) {
       await connection.query(`INSERT IGNORE INTO quota (card_type, item_name, quantity, price) VALUES (?, ?, ?, ?)`, q);

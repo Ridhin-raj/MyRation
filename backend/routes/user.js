@@ -52,7 +52,14 @@ router.get("/quota", async (req, res) => {
     const cardType = profiles[0]?.card_type || "BPL";
 
     // Get quota for that card type
-    const [quota] = await db.query("SELECT item_name, quantity, price FROM quota WHERE card_type = ?", [cardType]);
+    const [dbQuota] = await db.query("SELECT item_name, quantity, price FROM quota WHERE card_type = ?", [cardType]);
+
+    // Format to match frontend expectations
+    const quota = dbQuota.map(q => ({
+      item: q.item_name,
+      qty: q.quantity,
+      price: q.price
+    }));
 
     res.json({ cardType, quota });
   } catch (error) {
