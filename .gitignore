@@ -1,0 +1,13 @@
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.DS_Store
+*.local
+*.log
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/.env
+frontend/.env
+rationexample/.env
+.env
