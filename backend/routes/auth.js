@@ -106,24 +106,34 @@ router.post("/register/user", upload.single("rationCardImage"), async (req, res)
       name, dob, gender, mobile, aadhaar,
       rationCardNo, cardType, familyMembers,
       state, district, taluk, village, pincode,
-      selectedShop,
+      selectedShop, password, username
     } = req.body;
 
     // Validation
-    if (!name || !mobile || !aadhaar || !rationCardNo || !cardType) {
+    if (!name || !mobile || !aadhaar || !rationCardNo || !cardType || !password || !username) {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
     // Check if username already exists
-    const username = "user_" + aadhaar;
-    const [existing] = await db.query("SELECT id FROM users WHERE username = ?", [username]);
-    if (existing.length > 0) {
-      return res.status(400).json({ message: "User with this Aadhaar already exists" });
+    const [existingUser] = await db.query("SELECT id FROM users WHERE username = ?", [username]);
+    if (existingUser.length > 0) {
+      return res.status(400).json({ message: "Username already taken. Please choose another one." });
     }
 
-    // Hash a default password (aadhaar last 4 digits + "1234")
-    const defaultPassword = aadhaar.slice(-4) + "1234";
-    const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+    // Check if Aadhaar already exists
+    const [existingAadhaar] = await db.query("SELECT id FROM users WHERE aadhaar = ?", [aadhaar]);
+    if (existingAadhaar.length > 0) {
+      return res.status(400).json({ message: "A user with this Aadhaar number is already registered." });
+    }
+
+    // Check if Ration Card already exists
+    const [existingCard] = await db.query("SELECT id FROM user_profiles WHERE ration_card_no = ?", [rationCardNo]);
+    if (existingCard.length > 0) {
+      return res.status(400).json({ message: "This Ration Card number is already registered." });
+    }
+
+    // Hash the user-provided password
+    const hashedPassword = await bcrypt.hash(password, 10);
 
     // Insert into users table
     const [userResult] = await db.query(
@@ -136,19 +146,21 @@ router.post("/register/user", upload.single("rationCardImage"), async (req, res)
     // Get image path
     const imagePath = req.file ? req.file.filename : null;
 
+    // Sanitize selectedShop (ensure it is a number or null)
+    const validShopId = (selectedShop && !isNaN(selectedShop)) ? parseInt(selectedShop) : null;
+
     // Insert into user_profiles table
     await db.query(
       `INSERT INTO user_profiles 
        (user_id, dob, gender, ration_card_no, card_type, family_members, ration_card_image, state, district, taluk, village, pincode, assigned_shop_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [userId, dob, gender, rationCardNo, cardType, familyMembers || 1, imagePath, state, district, taluk, village, pincode, selectedShop || null]
+      [userId, dob, gender, rationCardNo, cardType, familyMembers || 1, imagePath, state, district, taluk, village, pincode, validShopId]
     );
 
     res.status(201).json({
       message: "Registration submitted successfully. Pending shopkeeper verification.",
       userId,
       username,
-      initialPassword: defaultPassword,
     });
   } catch (error) {
     console.error("User registration error:", error);
@@ -161,22 +173,26 @@ router.post("/register/user", upload.single("rationCardImage"), async (req, res)
 // ===============================
 router.post("/register/shopkeeper", async (req, res) => {
   try {
-    const { ownerName, mobile, aadhaar, shopName, licenseNo, capacity, state, district, taluk, village, pincode } = req.body;
+    const { ownerName, mobile, aadhaar, shopName, licenseNo, capacity, state, district, taluk, village, pincode, password, username } = req.body;
 
-    if (!ownerName || !mobile || !shopName || !licenseNo) {
+    if (!ownerName || !mobile || !shopName || !licenseNo || !password || !username) {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
     // Check if username already exists
-    const username = "shop_" + (aadhaar || mobile);
-    const [existing] = await db.query("SELECT id FROM users WHERE username = ?", [username]);
-    if (existing.length > 0) {
-      return res.status(400).json({ message: "Shopkeeper with this Aadhaar/Mobile already registered" });
+    const [existingUser] = await db.query("SELECT id FROM users WHERE username = ?", [username]);
+    if (existingUser.length > 0) {
+      return res.status(400).json({ message: "Username already taken. Please choose another one." });
     }
 
-    // Hash password
-    const defaultPassword = mobile.slice(-4) + "shop";
-    const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+    // Check if Aadhaar already exists
+    const [existingAadhaar] = await db.query("SELECT id FROM users WHERE aadhaar = ?", [aadhaar]);
+    if (existingAadhaar.length > 0) {
+      return res.status(400).json({ message: "A shopkeeper with this Aadhaar number is already registered." });
+    }
+
+    // Hash user-provided password
+    const hashedPassword = await bcrypt.hash(password, 10);
 
     // Insert user
     const [userResult] = await db.query(
@@ -196,7 +212,6 @@ router.post("/register/shopkeeper", async (req, res) => {
     res.status(201).json({
       message: "Shop registration submitted. Pending admin approval.",
       username,
-      initialPassword: defaultPassword,
     });
   } catch (error) {
     console.error("Shopkeeper registration error:", error);

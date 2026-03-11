@@ -168,6 +168,48 @@ router.put("/quota", async (req, res) => {
   }
 });
 
+// POST /api/admin/quota/new-item
+router.post("/quota/new-item", async (req, res) => {
+  try {
+    const { itemName, quantity, price, unit } = req.body;
+
+    if (!itemName || !quantity || !price) {
+      return res.status(400).json({ message: "Item name, quantity, and price are required." });
+    }
+
+    const cardTypes = ['APL', 'BPL', 'AAY', 'PHH'];
+    
+    // Add to quota table for all card types
+    for (const type of cardTypes) {
+      await db.query(
+        `INSERT INTO quota (card_type, item_name, quantity, price)
+         VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE quantity = ?, price = ?`,
+        [type, itemName, quantity, price, quantity, price]
+      );
+    }
+
+    // Add to stock table for all existing shops automatically
+    const [shops] = await db.query("SELECT id FROM shops");
+    for (const shop of shops) {
+      await db.query(
+        `INSERT INTO stock (shop_id, item_name, unit, allocated_qty, distributed_qty)
+         SELECT ?, ?, ?, 0, 0
+         FROM DUAL
+         WHERE NOT EXISTS (
+            SELECT 1 FROM stock WHERE shop_id = ? AND item_name = ?
+         )`,
+        [shop.id, itemName, unit || 'kg', shop.id, itemName]
+      );
+    }
+
+    res.json({ message: `Item '${itemName}' successfully added to all card types and shops.` });
+  } catch (error) {
+    console.error("Add new item error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 // GET /api/admin/complaints
 router.get("/complaints", async (req, res) => {
   try {

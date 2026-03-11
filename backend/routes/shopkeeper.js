@@ -215,6 +215,44 @@ router.put("/stock/:id", async (req, res) => {
   }
 });
 
+// PUT /api/shopkeeper/stock/:id/sell  (record a sale)
+router.put("/stock/:id/sell", async (req, res) => {
+  try {
+    const { quantity } = req.body;
+    const stockId = req.params.id;
+
+    // Security: Check if this stock item belongs to the shopkeeper's shop
+    const [shops] = await db.query("SELECT id FROM shops WHERE owner_id = ?", [req.user.id]);
+    if (shops.length === 0) {
+        return res.status(404).json({ message: "No shop found for this shopkeeper" });
+    }
+    const shopId = shops[0].id;
+
+    const [stockCheck] = await db.query("SELECT id, allocated_qty, distributed_qty FROM stock WHERE id = ? AND shop_id = ?", [stockId, shopId]);
+    if (stockCheck.length === 0) {
+        return res.status(403).json({ message: "Access denied. Stock item does not belong to your shop." });
+    }
+
+    const currentStock = stockCheck[0];
+    const available = currentStock.allocated_qty - currentStock.distributed_qty;
+
+    if (quantity > available) {
+      return res.status(400).json({ message: "Cannot sell more than available stock." });
+    }
+
+    // Record sale (increase distributed quantity)
+    await db.query(
+      "UPDATE stock SET distributed_qty = distributed_qty + ? WHERE id = ?",
+      [quantity, stockId]
+    );
+
+    res.json({ message: "Sale recorded successfully" });
+  } catch (error) {
+    console.error("Record sale error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 // PUT /api/shopkeeper/shop-status
 router.put("/shop-status", async (req, res) => {
   try {

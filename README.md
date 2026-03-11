@@ -30,48 +30,6 @@ Use these pre-seeded accounts to experience all roles. **Note: All passwords are
 
 ---
 
-## 🛠️ Detailed Registration Logic (For Demo)
-
-### 🏪 Shopkeeper Registration Flow
-1. **Apply**: Shopkeeper registers with license number and shop details.
-2. **Pending State**: Account is created as `pending` and does NOT appear in the user registration list yet.
-3. **Approval**: Admin logs in, reviews the license, and clicks **Approve**.
-4. **Live**: Only after Admin approval is the shop searchable by citizens.
-
-### 👤 User (Beneficiary) Registration Flow
-1. **Personal Details**: User provides name, DOB, Aadhaar, and Mobile number.
-2. **Card Info**: User selects Card Type (BPL/APL/AAY/PHH), family size, and uploads a scan of their Ration Card.
-3. **Shop Selection**: User filters by District and Taluk to find and select their nearest **Approved** Fair Price Shop.
-4. **Credential Generation**: Upon submission, the system generates a unique username (`user_<aadhaar>`) and an **Initial Password** (Aadhaar last 4 digits + `1234`).
-    *   *Self-Correction*: Users are informed to note these down as they cannot log in until verified.
-
----
-
-## 🔍 User Verification Workflow (Step-by-Step)
-
-To maintain high security, every beneficiary must pass through a **Two-Tier Verification** process:
-
-### 📥 Step 1: Beneficiary Submission
-*   Status: `pending`
-*   Profile Status: `verified_by_shopkeeper = FALSE`, `verified_by_admin = FALSE`
-
-### 🏪 Step 2: Shopkeeper Level (Local Verification)
-1. **Login**: Shopkeeper logs in to their dashboard.
-2. **Review**: Navigates to the **"Pending Verifications"** tab.
-3. **Action**: View's the user's uploaded Ration Card image and Aadhaar details. Clicking **"Approve"** marks the user as locally verified.
-*   Status: Remains `pending`
-*   Profile Status: `verified_by_shopkeeper = TRUE`
-
-### 🏛️ Step 3: Admin Level (Final Approval)
-1. **Login**: Admin logs in to the main dashboard.
-2. **Review**: Navigates to **"Pending Approvals"** (This list only shows users already verified by their respective shopkeepers).
-3. **Action**: Performs a cross-check with government records and clicks **"Approve"**.
-*   Status: Updates to `approved`
-*   Profile Status: `verified_by_admin = TRUE`
-
-**✅ Access Granted**: The user can now log in using their username and initial password to access their quota and book slots.
-
----
 
 ## 🏗️ Technical Features
 *   **Role-Based Access Control (RBAC)**: Secure routes using JWT tokens stored in LocalStorage.
@@ -95,12 +53,12 @@ To maintain high security, every beneficiary must pass through a **Two-Tier Veri
 
 ### 2. Run Applications
 *   **Backend**: `cd backend && npm start` (Port 5000)
-*   **Frontend**: `cd rationexample && npm run dev` (Port 5173/5180)
+*   **Frontend**: `cd frontend && npm run dev` (Port 5173/5180)
 
 ---
 
 ## 📂 Project Structure
-*   **/frontend (or rationexample)**: React 18 with Vite, Lucide Icons, and modular styling.
+*   **/frontend**: React 18 with Vite, Lucide Icons, and modular styling.
 *   **/backend**: Express.js server, MySQL connection pool, and JWT auth middleware.
 *   **schema.sql**: The complete database design for audits and presentation documentation.
 
