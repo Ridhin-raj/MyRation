@@ -140,7 +140,15 @@ router.get("/shop/:id/stock", async (req, res) => {
       "SELECT item_name, allocated_qty, distributed_qty, unit FROM stock WHERE shop_id = ?",
       [shopId]
     );
-    res.json(rows);
+
+    const formattedStock = rows.map(r => ({
+      item: r.item_name,
+      allocated: parseFloat(r.allocated_qty) || 0,
+      remaining: (parseFloat(r.allocated_qty) || 0) - (parseFloat(r.distributed_qty) || 0),
+      unit: r.unit
+    }));
+
+    res.json(formattedStock);
   } catch (error) {
     console.error("Get stock error:", error);
     res.status(500).json({ message: "Server error" });
@@ -248,12 +256,14 @@ router.post("/complaint", async (req, res) => {
 router.get("/alerts", async (req, res) => {
   try {
     const [rows] = await db.query(
-      `SELECT id, message, alert_type, is_read, created_at
-       FROM alerts
-       WHERE user_id = ? OR user_id IS NULL
-       ORDER BY created_at DESC
+      `SELECT a.id, a.message, a.alert_type, a.is_read, a.created_at
+       FROM alerts a
+       WHERE a.user_id = ? 
+          OR (a.user_id IS NULL AND a.shop_id IS NULL)
+          OR (a.user_id IS NULL AND a.shop_id = (SELECT assigned_shop_id FROM user_profiles WHERE user_id = ? LIMIT 1))
+       ORDER BY a.created_at DESC
        LIMIT 20`,
-      [req.user.id]
+      [req.user.id, req.user.id]
     );
     res.json(rows);
   } catch (error) {

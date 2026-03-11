@@ -159,7 +159,16 @@ router.get("/stock", async (req, res) => {
       [shopId]
     );
 
-    res.json(rows);
+    const formattedStock = rows.map(r => ({
+      id: r.id,
+      item: r.item_name,
+      allocated: parseFloat(r.allocated_qty) || 0,
+      distributed: parseFloat(r.distributed_qty) || 0,
+      unit: r.unit,
+      last_updated: r.last_updated
+    }));
+
+    res.json(formattedStock);
   } catch (error) {
     console.error("Get stock error:", error);
     res.status(500).json({ message: "Server error" });

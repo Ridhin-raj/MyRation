@@ -1,0 +1,425 @@
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  ShieldCheck, LogOut, LayoutDashboard, CheckSquare, Users, Settings,
+  MessageSquare, CheckCircle, XCircle, AlertTriangle, Eye, Save, Plus
+} from "lucide-react";
+import { defaultQuota, cardTypes } from "@/data/mockData";
+import { getAdminDashboard, getPendingApprovals, getAllUsers, getComplaints, getQuotaSettings, approveRegistration, updateQuota, resolveComplaint, addNewQuotaItem } from "@/data/api";
+
+const AdminDashboard = () => {
+  const navigate = useNavigate();
+  const [section, setSection] = useState("overview");
+  const [user] = useState(() => JSON.parse(localStorage.getItem("currentUser") || "{}"));
+  const [loading, setLoading] = useState(true);
+
+  // States
+  const [stats, setStats] = useState({ totalUsers: 0, pendingApprovals: 0, openComplaints: 0 });
+  const [approvals, setApprovals] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
+  const [complaints, setComplaints] = useState([]);
+  const [quotaData, setQuotaData] = useState(defaultQuota);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const [dash, pending, users, cmps, qta] = await Promise.all([
+          getAdminDashboard(),
+          getPendingApprovals(),
+          getAllUsers(),
+          getComplaints(),
+          getQuotaSettings(),
+        ]);
+
+        setStats(dash);
+        setApprovals(pending);
+        setAllUsers(users);
+        setComplaints(cmps);
+        setQuotaData(qta);
+      } catch (err) {
+        console.error("Error fetching admin dashboard data:", err);
+        // Fallback to initial empty states if API calls fail
+        setStats({ totalUsers: 0, pendingApprovals: 0, openComplaints: 0 });
+        setApprovals([]);
+        setAllUsers([]);
+        setComplaints([]);
+        setQuotaData(defaultQuota);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [user]);
+
+  // Quota Management
+  const [editingCard, setEditingCard] = useState("BPL");
+  const [quotaSaved, setQuotaSaved] = useState(false);
+  const [newItem, setNewItem] = useState({ itemName: "", quantity: "", price: "", unit: "kg" });
+  const [newItemAdded, setNewItemAdded] = useState(false);
+
+  const [viewItem, setViewItem] = useState(null);
+
+  const handleApproval = async (id, action) => {
+    const item = approvals.find((a) => a.id === id);
+    try {
+      await approveRegistration(id, item?.type?.toLowerCase(), action);
+      setApprovals((prev) => prev.filter((a) => a.id !== id));
+      setViewItem(null);
+    } catch {
+      alert("Action failed.");
+    }
+  };
+
+  const handleComplaintAction = async (id, action) => {
+    try {
+      await resolveComplaint(id, action, action === "warn");
+      setComplaints((prev) =>
+        prev.map((c) => c.id === id ? { ...c, status: action === "resolve" ? "resolved" : action === "warn" ? "warning_issued" : "dismissed" } : c)
+      );
+    } catch {
+      alert("Action failed.");
+    }
+  };
+
+  const handleQuotaSave = async () => {
+    try {
+      await updateQuota(editingCard, quotaData[editingCard]);
+      setQuotaSaved(true);
+      setTimeout(() => setQuotaSaved(false), 2000);
+    } catch {
+      alert("Failed to save quota.");
+    }
+  };
+
+  const handleAddNewItem = async () => {
+    if (!newItem.itemName || !newItem.quantity || !newItem.price) {
+      alert("Please fill all fields for the new item.");
+      return;
+    }
+    try {
+      await addNewQuotaItem(newItem);
+      
+      const qta = await getQuotaSettings();
+      setQuotaData(qta);
+      
+      setNewItem({ itemName: "", quantity: "", price: "", unit: "kg" });
+      setNewItemAdded(true);
+      setTimeout(() => setNewItemAdded(false), 2000);
+    } catch (err) {
+      alert("Failed to add new item");
+    }
+  };
+
+  const updateQuotaItem = (index, field, value) => {
+    setQuotaData((prev) => {
+      const updated = { ...prev };
+      updated[editingCard] = [...updated[editingCard]];
+      updated[editingCard][index] = { ...updated[editingCard][index], [field]: value };
+      return updated;
+    });
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("currentUser");
+    localStorage.removeItem("token");
+    navigate("/login");
+  };
+
+  const navItems = [
+    { title: "Overview", icon: LayoutDashboard, key: "overview" },
+    { title: "Approvals", icon: CheckSquare, key: "approvals" },
+    { title: "Quota Management", icon: Settings, key: "quota" },
+    { title: "Complaints", icon: MessageSquare, key: "complaints" },
+    { title: "All Users", icon: Users, key: "users" },
+  ];
+
+  return (
+    <div className="dashboard-layout">
+      {/* Sidebar */}
+      <aside className="sidebar">
+        <div className="sidebar-brand">
+          <div className="sidebar-brand-icon"><ShieldCheck size={14} /></div>
+          <span>Admin</span>
+        </div>
+        <nav className="sidebar-nav">
+          {navItems.map((item) => (
+            <button
+              key={item.key}
+              className={`sidebar-link ${section === item.key ? "active" : ""}`}
+              onClick={() => setSection(item.key)}
+            >
+              <item.icon size={16} />
+              <span>{item.title}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-footer">
+          <button className="sidebar-link" onClick={handleLogout}><LogOut size={16} /><span>Logout</span></button>
+        </div>
+      </aside>
+
+      {/* Main */}
+      <div className="dashboard-main">
+        <header className="topbar">
+          <div className="topbar-title">Admin Dashboard</div>
+          <div className="topbar-right">
+            <span className="badge badge-primary" style={{ marginRight: "0.5rem" }}>{user.name || "Anita Sharma"}</span>
+            <button className="btn btn-ghost btn-sm" onClick={handleLogout} title="Logout">
+              <LogOut size={16} />
+            </button>
+          </div>
+        </header>
+
+        <div className="dashboard-content animate-in">
+          {/* OVERVIEW */}
+          {section === "overview" && (
+            <div className="grid-4">
+              {[
+                { label: "Total Users", value: allUsers.length, icon: Users, color: "blue" },
+                { label: "Pending Approvals", value: approvals.length, icon: CheckSquare, color: "orange" },
+                { label: "Open Complaints", value: complaints.filter((c) => c.status === "pending").length, icon: MessageSquare, color: "red" },
+                { label: "Card Types", value: cardTypes.length, icon: Settings, color: "green" },
+              ].map((card) => (
+                <div key={card.label} className="card">
+                  <div className="stat-card">
+                    <div className={`stat-icon ${card.color}`}><card.icon size={22} /></div>
+                    <div>
+                      <div className="stat-value">{card.value}</div>
+                      <div className="stat-label">{card.label}</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* APPROVALS */}
+          {section === "approvals" && (
+            <div className="card">
+              <div className="card-header">
+                <h2 className="card-title">Final Approvals</h2>
+                <p className="card-subtitle">Approve or reject user and shopkeeper registrations</p>
+              </div>
+              <div className="card-body">
+                {approvals.length === 0 ? (
+                  <div className="empty-state"><CheckSquare size={40} /><p>No pending approvals</p></div>
+                ) : (
+                  <div className="table-wrap">
+                    <table className="table">
+                      <thead><tr><th>ID</th><th>Name</th><th>Type</th><th>Details</th><th>Date</th><th>Actions</th></tr></thead>
+                      <tbody>
+                        {approvals.map((a) => (
+                          <tr key={a.id}>
+                            <td style={{ fontFamily: "monospace", fontSize: "0.75rem" }}>{a.id}</td>
+                            <td style={{ fontWeight: 600 }}>{a.name}</td>
+                            <td><span className={`badge ${a.type === "User" ? "badge-primary" : "badge-success"}`}>{a.type}</span></td>
+                            <td className="text-sm text-muted">{a.details}</td>
+                            <td>{a.date}</td>
+                            <td>
+                              <div className="flex gap-1">
+                                <button className="btn btn-ghost btn-sm" onClick={() => setViewItem(a)}><Eye size={14} /></button>
+                                <button className="btn btn-success btn-sm" onClick={() => handleApproval(a.id, "approve")}><CheckCircle size={14} /></button>
+                                <button className="btn btn-danger btn-sm" onClick={() => handleApproval(a.id, "reject")}><XCircle size={14} /></button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* QUOTA MANAGEMENT */}
+          {section === "quota" && (
+            <div className="card">
+              <div className="card-header">
+                <h2 className="card-title">Ration Quota Management</h2>
+                <p className="card-subtitle">Set monthly ration quota for each card type. This applies to all beneficiaries.</p>
+              </div>
+              <div className="card-body">
+                {quotaSaved && (
+                  <div className="alert alert-success"><CheckCircle size={16} /><strong>Quota saved successfully!</strong></div>
+                )}
+
+                {/* Card Type Tabs */}
+                <div className="tabs">
+                  {cardTypes.map((ct) => (
+                    <button
+                      key={ct.code}
+                      className={`tab-btn ${editingCard === ct.code ? "active" : ""}`}
+                      onClick={() => setEditingCard(ct.code)}
+                    >
+                      {ct.code}
+                    </button>
+                  ))}
+                </div>
+
+                <p className="text-sm text-muted mb-2">
+                  Editing quota for <strong>{editingCard}</strong> — {cardTypes.find((c) => c.code === editingCard)?.name}
+                </p>
+
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead><tr><th>Item</th><th>Quantity</th><th>Price</th></tr></thead>
+                    <tbody>
+                      {(quotaData[editingCard] || []).map((q, i) => (
+                        <tr key={i}>
+                          <td style={{ fontWeight: 700 }}>{q.item}</td>
+                          <td>
+                            <input
+                              className="form-input"
+                              value={q.qty}
+                              onChange={(e) => updateQuotaItem(i, "qty", e.target.value)}
+                              style={{ width: "8rem", height: "2rem", fontSize: "0.8125rem" }}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              className="form-input"
+                              value={q.price}
+                              onChange={(e) => updateQuotaItem(i, "price", e.target.value)}
+                              style={{ width: "8rem", height: "2rem", fontSize: "0.8125rem" }}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <button className="btn btn-primary mt-2" onClick={handleQuotaSave}>
+                  <Save size={14} /> Save Quota for {editingCard}
+                </button>
+
+                <hr style={{ margin: "2rem 0", borderColor: "var(--border)" }} />
+                
+                <h3 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.5rem" }}>Add New Item to All Card Types</h3>
+                <p className="text-sm text-muted mb-2">This will add a new item for all beneficiaries and update stock records for all shopkeepers.</p>
+                
+                {newItemAdded && (
+                  <div className="alert alert-success mb-2" style={{ padding: "0.5rem 1rem" }}>
+                    <CheckCircle size={16} style={{ display: "inline-block", marginRight: "0.5rem", verticalAlign: "middle" }} />
+                    <strong>New item added successfully!</strong>
+                  </div>
+                )}
+                
+                <div style={{ display: "flex", gap: "1rem", alignItems: "flex-end", flexWrap: "wrap", marginTop: "1rem" }}>
+                  <div className="form-group" style={{ marginBottom: 0, flex: 1, minWidth: "150px" }}>
+                    <label className="form-label text-xs">Item Name</label>
+                    <input className="form-input" placeholder="e.g. Cooking Oil" value={newItem.itemName} onChange={(e) => setNewItem({...newItem, itemName: e.target.value})} />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0, flex: 1, minWidth: "100px" }}>
+                    <label className="form-label text-xs">Unit</label>
+                    <input className="form-input" placeholder="kg, L, etc." value={newItem.unit} onChange={(e) => setNewItem({...newItem, unit: e.target.value})} />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0, flex: 1, minWidth: "150px" }}>
+                    <label className="form-label text-xs">Default Quantity</label>
+                    <input className="form-input" placeholder="e.g. 2 L" value={newItem.quantity} onChange={(e) => setNewItem({...newItem, quantity: e.target.value})} />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0, flex: 1, minWidth: "150px" }}>
+                    <label className="form-label text-xs">Default Price</label>
+                    <input className="form-input" placeholder="e.g. ₹50/L" value={newItem.price} onChange={(e) => setNewItem({...newItem, price: e.target.value})} />
+                  </div>
+                  <button className="btn btn-secondary" style={{ height: "42px", padding: "0 1.5rem" }} onClick={handleAddNewItem}>
+                    <Plus size={14} style={{ marginRight: "0.5rem" }} /> Add Item
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* COMPLAINTS */}
+          {section === "complaints" && (
+            <div className="card">
+              <div className="card-header">
+                <h2 className="card-title">User Complaints</h2>
+                <p className="card-subtitle">Review complaints and take action or issue warnings</p>
+              </div>
+              <div className="card-body">
+                {complaints.map((c) => (
+                  <div key={c.id} className="complaint-card">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <strong>{c.type}</strong>
+                        <span className="text-xs text-muted" style={{ marginLeft: "0.5rem" }}>{c.id}</span>
+                      </div>
+                      <span className={`badge ${c.status === "pending" ? "badge-warning" : c.status === "resolved" ? "badge-success" : "badge-danger"}`}>
+                        {c.status === "pending" ? "Pending" : c.status === "resolved" ? "Resolved" : "Warning Issued"}
+                      </span>
+                    </div>
+                    <p className="text-sm mt-1">{c.message}</p>
+                    <div className="complaint-meta">
+                      <span className="text-xs text-muted">By: {c.user}</span>
+                      <span className="text-xs text-muted">• Shop: {c.shop}</span>
+                      <span className="text-xs text-muted">• {c.date}</span>
+                    </div>
+                    {c.status === "pending" && (
+                      <div className="flex gap-1 mt-1">
+                        <button className="btn btn-success btn-sm" onClick={() => handleComplaintAction(c.id, "resolve")}>
+                          <CheckCircle size={12} /> Resolve
+                        </button>
+                        <button className="btn btn-warning btn-sm" onClick={() => handleComplaintAction(c.id, "warn")}>
+                          <AlertTriangle size={12} /> Warn Shopkeeper
+                        </button>
+                        <button className="btn btn-ghost btn-sm" onClick={() => handleComplaintAction(c.id, "dismiss")}>
+                          Dismiss
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ALL USERS */}
+          {section === "users" && (
+            <div className="card">
+              <div className="card-header"><h2 className="card-title">User Management</h2></div>
+              <div className="card-body">
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Card Type</th><th>Status</th></tr></thead>
+                    <tbody>
+                      {allUsers.map((u) => (
+                        <tr key={u.id}>
+                          <td style={{ fontFamily: "monospace", fontSize: "0.75rem" }}>{u.id}</td>
+                          <td style={{ fontWeight: 600 }}>{u.name}</td>
+                          <td><span className="badge badge-outline">{u.role}</span></td>
+                          <td>{u.cardType}</td>
+                          <td><span className={`badge ${u.status === "Active" ? "badge-success" : "badge-warning"}`}>{u.status}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* View Modal */}
+      {viewItem && (
+        <div className="modal-overlay" onClick={() => setViewItem(null)}>
+          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <h3 className="modal-title">Review: {viewItem.id}</h3>
+            {[["Name", viewItem.name], ["Type", viewItem.type], ["Details", viewItem.details], ["Submitted", viewItem.date]].map(([l, v]) => (
+              <div key={l} className="data-row"><dt>{l}</dt><dd>{v}</dd></div>
+            ))}
+            <div className="modal-actions">
+              <button className="btn btn-danger" onClick={() => handleApproval(viewItem.id, "reject")}>Reject</button>
+              <button className="btn btn-success" onClick={() => handleApproval(viewItem.id, "approve")}>Approve</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default AdminDashboard;
