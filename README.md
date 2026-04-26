@@ -7,6 +7,8 @@
 
 A state-of-the-art Digital Public Distribution System (PDS) designed to streamline the distribution of essential commodities. This platform provides transparency, accountability, and convenience for both administrators and citizens.
 
+> 📄 **Documentation Highlight**: The system features an advanced **Demand-Driven Supply Chain** with algorithmic resource allocation, strict `UPSERT` inventory syncing, precise end-of-month expiration limits, and surplus-aware distribution dynamics. Refer to the **Detailed Project Report** for an exhaustive review of the logic, schemas, and security guardrails governing the monthly iteration cycles.
+
 ---
 
 ## 📽️ Presentation Highlight: Why this Project?
