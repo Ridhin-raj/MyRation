@@ -69,8 +69,8 @@ router.get("/pending", async (req, res) => {
     const shopId = shops[0].id;
 
     const [rows] = await db.query(
-      `SELECT u.id, u.name, u.aadhaar, u.created_at,
-              p.card_type, p.family_members, p.village, p.ration_card_image
+      `SELECT u.id, u.name, u.aadhaar, u.created_at as date,
+              p.card_type as cardType, p.family_members as members, p.village, p.ration_card_image
        FROM user_profiles p
        JOIN users u ON p.user_id = u.id
        WHERE p.assigned_shop_id = ? AND p.verified_by_shopkeeper = FALSE AND u.status = 'pending'`,
@@ -92,7 +92,7 @@ router.get("/verified", async (req, res) => {
     
     const shopId = shops[0].id;
     const [rows] = await db.query(
-      `SELECT u.id, u.name, u.mobile, p.card_type, p.family_members, u.status
+      `SELECT u.id, u.name, u.mobile, p.card_type as cardType, p.family_members as members, u.status
        FROM user_profiles p
        JOIN users u ON p.user_id = u.id
        WHERE p.assigned_shop_id = ? AND p.verified_by_shopkeeper = TRUE`,
@@ -193,22 +193,28 @@ router.put("/stock/:id", async (req, res) => {
         return res.status(403).json({ message: "Access denied. Stock item does not belong to your shop." });
     }
 
-    // Add new stock (increase allocated quantity)
+    // Update stock (increase allocated quantity)
     await db.query(
       "UPDATE stock SET allocated_qty = allocated_qty + ? WHERE id = ?",
       [quantity, stockId]
     );
 
+    // Record in stock_history (MANDATORY)
+    const [itemInfo] = await db.query("SELECT item_name FROM stock WHERE id = ?", [stockId]);
+    await db.query(
+      "INSERT INTO stock_history (shop_id, item_name, action_type, quantity) VALUES (?, ?, 'ADDED', ?)",
+      [shopId, itemInfo[0].item_name, quantity]
+    );
+
     // Create alert for users of this shop
-    const [stockItem] = await db.query("SELECT shop_id, item_name FROM stock WHERE id = ?", [stockId]);
-    if (stockItem[0]) {
+    if (itemInfo[0]) {
       await db.query(
         "INSERT INTO alerts (shop_id, message, alert_type) VALUES (?, ?, 'success')",
-        [stockItem[0].shop_id, `New stock of ${stockItem[0].item_name} arrived at your shop!`]
+        [shopId, `New stock of ${itemInfo[0].item_name} arrived at your shop!`]
       );
     }
 
-    res.json({ message: "Stock updated successfully" });
+    res.json({ message: "Stock arrival recorded successfully" });
   } catch (error) {
     console.error("Update stock error:", error);
     res.status(500).json({ message: "Server error" });
@@ -253,6 +259,52 @@ router.put("/stock/:id/sell", async (req, res) => {
   }
 });
 
+// POST /api/shopkeeper/sell-stock (Legacy sale - for manual sales if any)
+router.post("/sell-stock", async (req, res) => {
+  const connection = await db.getConnection();
+  await connection.beginTransaction();
+  try {
+    const { stockId, quantity } = req.body;
+    
+    // Check stock first
+    const [rows] = await connection.query(
+      "SELECT allocated_qty, distributed_qty FROM stock WHERE id = ? FOR UPDATE",
+      [stockId]
+    );
+
+    if (rows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ message: "Stock record not found" });
+    }
+
+    if (rows[0].allocated_qty - rows[0].distributed_qty < quantity) {
+      await connection.rollback();
+      return res.status(400).json({ message: "Insufficient stock available." });
+    }
+
+    await connection.query(
+      "UPDATE stock SET distributed_qty = distributed_qty + ? WHERE id = ?",
+      [quantity, stockId]
+    );
+    
+    // Log history
+    const [stockItem] = await connection.query("SELECT item_name, shop_id FROM stock WHERE id = ?", [stockId]);
+    await connection.query(
+      "INSERT INTO stock_history (shop_id, item_name, action_type, quantity) VALUES (?, ?, 'DISTRIBUTED', ?)",
+      [stockItem[0].shop_id, stockItem[0].item_name, quantity]
+    );
+
+    await connection.commit();
+    res.json({ message: "Sale recorded successfully" });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Sell stock error:", error);
+    res.status(500).json({ message: "Server error" });
+  } finally {
+    connection.release();
+  }
+});
+
 // PUT /api/shopkeeper/shop-status
 router.put("/shop-status", async (req, res) => {
   try {
@@ -264,6 +316,247 @@ router.put("/shop-status", async (req, res) => {
   } catch (error) {
     console.error("Toggle status error:", error);
     res.status(500).json({ message: "Server error" });
+  }
+});
+
+// GET /api/shopkeeper/beneficiary-quota/:userId
+router.get("/beneficiary-quota/:userId", async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const monthYear = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
+
+    // Ensure user belongs to this shop
+    const [shops] = await db.query("SELECT id FROM shops WHERE owner_id = ?", [req.user.id]);
+    const shopId = shops[0]?.id;
+    const [profile] = await db.query("SELECT card_type FROM user_profiles WHERE user_id = ? AND assigned_shop_id = ?", [userId, shopId]);
+
+    if (profile.length === 0) {
+      return res.status(403).json({ message: "User not found or not assigned to your shop." });
+    }
+
+    // Get current month balances
+    let [balances] = await db.query(
+      "SELECT item_name, total_quota, remaining_quota FROM user_balances WHERE user_id = ? AND month_year = ?",
+      [userId, monthYear]
+    );
+
+    const [dbQuotaItems] = await db.query("SELECT item_name, quantity FROM quota WHERE card_type = ?", [profile[0].card_type]);
+
+    // Sync: Ensure every quota item has a balance record
+    for (const q of dbQuotaItems) {
+      const exists = balances.find(b => b.item_name === q.item_name);
+      if (!exists) {
+        const qtyNum = parseFloat(q.quantity.replace(/[^0-9.]/g, '')) || 0;
+        await db.query(
+          "INSERT INTO user_balances (user_id, item_name, total_quota, remaining_quota, month_year) VALUES (?, ?, ?, ?, ?)",
+          [userId, q.item_name, qtyNum, qtyNum, monthYear]
+        );
+      }
+    }
+
+    // Fetch again to get the full synced list
+    const [syncedBalances] = await db.query(
+      "SELECT item_name, total_quota, remaining_quota FROM user_balances WHERE user_id = ? AND month_year = ?",
+      [userId, monthYear]
+    );
+
+    res.json(syncedBalances);
+  } catch (error) {
+    console.error("Get beneficiary quota error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// POST /api/shopkeeper/collect-ration
+router.post("/collect-ration", async (req, res) => {
+  const connection = await db.getConnection();
+  await connection.beginTransaction();
+
+  try {
+    const { userId, itemName, amount } = req.body;
+    const monthYear = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
+
+    if (!userId || !itemName || !amount) {
+      throw new Error("Missing required fields");
+    }
+
+    // Get shop ID
+    const [shops] = await connection.query("SELECT id FROM shops WHERE owner_id = ?", [req.user.id]);
+    const shopId = shops[0]?.id;
+
+    // 1. Check user remaining quota
+    const [balances] = await connection.query(
+      "SELECT total_quota, remaining_quota FROM user_balances WHERE user_id = ? AND item_name = ? AND month_year = ? FOR UPDATE",
+      [userId, itemName, monthYear]
+    );
+
+    if (balances.length === 0) {
+      throw new Error("User quota record not found.");
+    }
+
+    const { total_quota, remaining_quota } = balances[0];
+    if (amount > remaining_quota) {
+      throw new Error(`Insufficient quota. Available: ${remaining_quota}`);
+    }
+
+    // 2. Check shop stock
+    const [stock] = await connection.query(
+      "SELECT id, allocated_qty, distributed_qty FROM stock WHERE shop_id = ? AND LOWER(item_name) = LOWER(?) FOR UPDATE",
+      [shopId, itemName]
+    );
+
+    if (stock.length === 0) {
+      throw new Error("Item not available in shop stock.");
+    }
+
+    const availableStock = stock[0].allocated_qty - stock[0].distributed_qty;
+    if (amount > availableStock) {
+      throw new Error("Insufficient shop stock.");
+    }
+
+    // 3. Update user balance
+    const newRemaining = remaining_quota - amount;
+    await connection.query(
+      "UPDATE user_balances SET remaining_quota = ? WHERE user_id = ? AND item_name = ? AND month_year = ?",
+      [newRemaining, userId, itemName, monthYear]
+    );
+
+    // 4. Update shop stock
+    await connection.query(
+      "UPDATE stock SET distributed_qty = distributed_qty + ? WHERE id = ?",
+      [amount, stock[0].id]
+    );
+
+    // 5. Record quota history (MANDATORY)
+    await connection.query(
+      `INSERT INTO quota_history (user_id, shop_id, action_type, item_name, amount, remaining_quota, total_quota) 
+       VALUES (?, ?, 'COLLECTED', ?, ?, ?, ?)`,
+      [userId, shopId, itemName, amount, newRemaining, total_quota]
+    );
+
+    // 6. Record stock history (MANDATORY)
+    await connection.query(
+      `INSERT INTO stock_history (shop_id, item_name, action_type, quantity, user_id) 
+       VALUES (?, ?, 'DISTRIBUTED', ?, ?)`,
+      [shopId, itemName, amount, userId]
+    );
+
+    // 7. Record in legacy ration_history (optional but good for compatibility)
+    const [quotaPrice] = await connection.query(
+      "SELECT q.price FROM quota q JOIN user_profiles p ON q.card_type = p.card_type WHERE p.user_id = ? AND q.item_name = ? LIMIT 1",
+      [userId, itemName]
+    );
+    
+    await connection.query(
+      `INSERT INTO ration_history (user_id, shop_id, month_year, item_name, quantity, price, collected, collected_at) 
+       VALUES (?, ?, ?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP)`,
+      [userId, shopId, monthYear, itemName, `${amount} kg`, quotaPrice[0]?.price || "N/A"]
+    );
+
+    await connection.commit();
+    res.json({ 
+      message: "Ration collected successfully", 
+      remainingQuota: newRemaining 
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Collect ration error:", error);
+    res.status(400).json({ message: error.message });
+  } finally {
+    connection.release();
+  }
+});
+
+// GET /api/shopkeeper/stock-history
+router.get("/stock-history", async (req, res) => {
+  try {
+    const [shops] = await db.query("SELECT id FROM shops WHERE owner_id = ?", [req.user.id]);
+    if (shops.length === 0) return res.status(404).json({ message: "Shop not found" });
+    const shopId = shops[0].id;
+
+    const [rows] = await db.query(
+      `SELECT h.*, u.name as user_name 
+       FROM stock_history h 
+       LEFT JOIN users u ON h.user_id = u.id 
+       WHERE h.shop_id = ? 
+       ORDER BY h.timestamp DESC LIMIT 50`,
+      [shopId]
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("Stock history error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// GET /api/shopkeeper/assigned-stock
+router.get("/assigned-stock", async (req, res) => {
+  try {
+    const [shops] = await db.query("SELECT id FROM shops WHERE owner_id = ?", [req.user.id]);
+    if (shops.length === 0) return res.status(404).json({ message: "Shop not found" });
+    const shopId = shops[0].id;
+
+    const [rows] = await db.query(
+      "SELECT * FROM assigned_stock WHERE shop_id = ? AND status = 'PENDING' ORDER BY created_at DESC",
+      [shopId]
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("Get assigned stock error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// POST /api/shopkeeper/receive-stock
+router.post("/receive-stock", async (req, res) => {
+  const connection = await db.getConnection();
+  await connection.beginTransaction();
+  try {
+    const { assignmentId } = req.body;
+    const [shops] = await connection.query("SELECT id FROM shops WHERE owner_id = ?", [req.user.id]);
+    const shopId = shops[0].id;
+
+    // 1. Get assignment details
+    const [assignment] = await connection.query(
+      "SELECT * FROM assigned_stock WHERE id = ? AND shop_id = ? AND status = 'PENDING' FOR UPDATE",
+      [assignmentId, shopId]
+    );
+
+    if (assignment.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ message: "Pending assignment not found" });
+    }
+
+    const { item_name, quantity } = assignment[0];
+
+    // 2. Update status
+    await connection.query(
+      "UPDATE assigned_stock SET status = 'VERIFIED', verified_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [assignmentId]
+    );
+
+    // 3. Update shop inventory (allocated_qty) - Using UPSERT logic
+    await connection.query(
+      `INSERT INTO stock (shop_id, item_name, allocated_qty, distributed_qty, unit) 
+       VALUES (?, ?, ?, 0, 'kg')
+       ON DUPLICATE KEY UPDATE allocated_qty = allocated_qty + ?`,
+      [shopId, item_name, quantity, quantity]
+    );
+
+    // 4. Record history
+    await connection.query(
+      "INSERT INTO stock_history (shop_id, item_name, action_type, quantity) VALUES (?, ?, 'ADDED', ?)",
+      [shopId, item_name, quantity]
+    );
+
+    await connection.commit();
+    res.json({ message: `Successfully received ${quantity} kg of ${item_name}` });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Receive stock error:", error);
+    res.status(500).json({ message: "Server error" });
+  } finally {
+    connection.release();
   }
 });
 

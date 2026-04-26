@@ -18,6 +18,8 @@ const db = require("../db");
 
 const router = express.Router();
 
+console.log("Admin Router Loaded");
+
 // GET /api/admin/dashboard
 router.get("/dashboard", async (req, res) => {
   try {
@@ -151,7 +153,8 @@ router.put("/quota", async (req, res) => {
       return res.status(400).json({ message: "Card type and items are required" });
     }
 
-    // Update each item using INSERT ... ON DUPLICATE KEY UPDATE
+    // Update each item and ensure it exists in shop stock
+    const [shops] = await db.query("SELECT id FROM shops");
     for (const item of items) {
       await db.query(
         `INSERT INTO quota (card_type, item_name, quantity, price)
@@ -159,6 +162,19 @@ router.put("/quota", async (req, res) => {
          ON DUPLICATE KEY UPDATE quantity = ?, price = ?`,
         [card_type, item.item, item.qty, item.price, item.qty, item.price]
       );
+
+      // Ensure item exists in all shops' stock
+      for (const shop of shops) {
+        await db.query(
+          `INSERT INTO stock (shop_id, item_name, unit, allocated_qty, distributed_qty)
+           SELECT ?, ?, 'kg', 0, 0
+           FROM DUAL
+           WHERE NOT EXISTS (
+              SELECT 1 FROM stock WHERE shop_id = ? AND item_name = ?
+           )`,
+          [shop.id, item.item, shop.id, item.item]
+        );
+      }
     }
 
     res.json({ message: `Quota for ${card_type} updated successfully` });
@@ -171,7 +187,8 @@ router.put("/quota", async (req, res) => {
 // POST /api/admin/quota/new-item
 router.post("/quota/new-item", async (req, res) => {
   try {
-    const { itemName, quantity, price, unit } = req.body;
+    const { itemName, quantity, price, unit, initialStock } = req.body;
+    const stockVal = parseFloat(initialStock) || 0;
 
     if (!itemName || !quantity || !price) {
       return res.status(400).json({ message: "Item name, quantity, and price are required." });
@@ -194,18 +211,36 @@ router.post("/quota/new-item", async (req, res) => {
     for (const shop of shops) {
       await db.query(
         `INSERT INTO stock (shop_id, item_name, unit, allocated_qty, distributed_qty)
-         SELECT ?, ?, ?, 0, 0
+         SELECT ?, ?, ?, ?, 0
          FROM DUAL
          WHERE NOT EXISTS (
             SELECT 1 FROM stock WHERE shop_id = ? AND item_name = ?
          )`,
-        [shop.id, itemName, unit || 'kg', shop.id, itemName]
+        [shop.id, itemName, unit || 'kg', stockVal, shop.id, itemName]
       );
     }
 
-    res.json({ message: `Item '${itemName}' successfully added to all card types and shops.` });
+    res.json({ message: `Item '${itemName}' successfully added with ${stockVal}${unit || 'kg'} initial stock in all shops.` });
   } catch (error) {
     console.error("Add new item error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// DELETE /api/admin/quota/:cardType/:itemName
+router.delete("/quota/:cardType/:itemName", async (req, res) => {
+  console.log("DELETE Quota Request:", req.params);
+  try {
+    const { cardType, itemName } = req.params;
+    
+    await db.query(
+      "DELETE FROM quota WHERE card_type = ? AND item_name = ?",
+      [cardType, itemName]
+    );
+    
+    res.json({ message: `Item '${itemName}' removed from ${cardType} quota.` });
+  } catch (error) {
+    console.error("Delete quota error:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -271,7 +306,7 @@ router.get("/users", async (req, res) => {
   try {
     const [rows] = await db.query(
       `SELECT u.id, u.username, u.name, u.role, u.status, u.created_at,
-              p.card_type
+              p.card_type as cardType
        FROM users u
        LEFT JOIN user_profiles p ON u.id = p.user_id
        ORDER BY u.created_at DESC`
@@ -279,6 +314,106 @@ router.get("/users", async (req, res) => {
     res.json(rows);
   } catch (error) {
     console.error("Get users error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// GET /api/admin/shops/:id/demand
+router.get("/shops/:id/demand", async (req, res) => {
+  try {
+    const shopId = req.params.id;
+
+    // 1. Get user counts per card type for this shop
+    const [userCounts] = await db.query(
+      `SELECT card_type, COUNT(*) as count 
+       FROM user_profiles 
+       WHERE assigned_shop_id = ? AND verified_by_admin = TRUE 
+       GROUP BY card_type`,
+      [shopId]
+    );
+
+    // 2. Get all quota rules
+    const [quotaRules] = await db.query("SELECT card_type, item_name, quantity FROM quota");
+
+    // 3. Calculate demand
+    const demand = {};
+    quotaRules.forEach(q => {
+      const uCount = userCounts.find(uc => uc.card_type === q.card_type)?.count || 0;
+      const qtyNum = parseFloat(q.quantity.replace(/[^0-9.]/g, '')) || 0;
+      
+      if (!demand[q.item_name]) {
+        demand[q.item_name] = { 
+          item: q.item_name, 
+          totalDemand: 0, 
+          details: [] 
+        };
+      }
+      
+      const itemDemand = uCount * qtyNum;
+      demand[q.item_name].totalDemand += itemDemand;
+      demand[q.item_name].details.push({
+        cardType: q.card_type,
+        userCount: uCount,
+        quotaPerUser: qtyNum,
+        subTotal: itemDemand
+      });
+    });
+
+    // 4. Get current stock for comparison
+    const [currentStock] = await db.query(
+      "SELECT item_name, allocated_qty, distributed_qty FROM stock WHERE shop_id = ?",
+      [shopId]
+    );
+
+    const result = Object.values(demand).map(d => {
+      const stock = currentStock.find(s => s.item_name === d.item);
+      return {
+        ...d,
+        currentAllocated: stock ? parseFloat(stock.allocated_qty) : 0,
+        currentRemaining: stock ? (parseFloat(stock.allocated_qty) - parseFloat(stock.distributed_qty)) : 0
+      };
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error("Get demand error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// POST /api/admin/shops/:id/allocate
+router.post("/shops/:id/allocate", async (req, res) => {
+  try {
+    const shopId = req.params.id;
+    const { items } = req.body; // Array of { itemName, quantity }
+
+    for (const item of items) {
+      await db.query(
+        `INSERT INTO assigned_stock (shop_id, item_name, quantity, status) 
+         VALUES (?, ?, ?, 'PENDING')`,
+        [shopId, item.itemName, item.quantity]
+      );
+    }
+
+    res.json({ message: "Stock assignment created. Shopkeeper needs to verify and receive it." });
+  } catch (error) {
+    console.error("Allocate stock error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// GET /api/admin/shops
+router.get("/shops", async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT s.id, s.shop_name, s.license_no, s.status, s.created_at, u.name as owner_name 
+       FROM shops s 
+       JOIN users u ON s.owner_id = u.id 
+       WHERE s.status = 'approved'`
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("Get shops error:", error);
     res.status(500).json({ message: "Server error" });
   }
 });

@@ -94,8 +94,10 @@ async function setup() {
         allocated_qty DECIMAL(10,2) DEFAULT 0,
         distributed_qty DECIMAL(10,2) DEFAULT 0,
         unit VARCHAR(10) DEFAULT 'kg',
+        month_year VARCHAR(20) NOT NULL,
         last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        FOREIGN KEY (shop_id) REFERENCES shops(id) ON DELETE CASCADE
+        FOREIGN KEY (shop_id) REFERENCES shops(id) ON DELETE CASCADE,
+        UNIQUE KEY unique_shop_item_month (shop_id, item_name, month_year)
       )
     `);
 
@@ -151,6 +153,69 @@ async function setup() {
         is_read BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (shop_id) REFERENCES shops(id) ON DELETE CASCADE
+      )
+    `);
+
+    // --- NEW TABLES FROM MIGRATIONS ---
+
+    // 1. User Balances (Monthly Quota Tracking)
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS user_balances (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        item_name VARCHAR(50) NOT NULL,
+        total_quota DECIMAL(10,2) NOT NULL,
+        remaining_quota DECIMAL(10,2) NOT NULL,
+        month_year VARCHAR(20) NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE KEY user_item_month (user_id, item_name, month_year)
+      )
+    `);
+
+    // 2. Quota History (Audit Log for Collections)
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS quota_history (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        shop_id INT,
+        action_type ENUM('COLLECTED', 'ADDED', 'ADJUSTED') NOT NULL,
+        item_name VARCHAR(50) NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        remaining_quota DECIMAL(10,2) NOT NULL,
+        total_quota DECIMAL(10,2) NOT NULL,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (shop_id) REFERENCES shops(id) ON DELETE SET NULL
+      )
+    `);
+
+    // 3. Stock History (Audit Log for Shop Inventory)
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS stock_history (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        shop_id INT NOT NULL,
+        item_name VARCHAR(50) NOT NULL,
+        action_type ENUM('ADDED', 'DISTRIBUTED', 'ADJUSTED') NOT NULL,
+        quantity DECIMAL(10,2) NOT NULL,
+        user_id INT DEFAULT NULL,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (shop_id) REFERENCES shops(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+      )
+    `);
+
+    // 4. Assigned Stock (Pending Shipments from District)
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS assigned_stock (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        shop_id INT NOT NULL,
+        item_name VARCHAR(50) NOT NULL,
+        quantity DECIMAL(10,2) NOT NULL,
+        status ENUM('PENDING', 'VERIFIED', 'CANCELLED') DEFAULT 'PENDING',
+        month_year VARCHAR(20) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        verified_at TIMESTAMP NULL,
         FOREIGN KEY (shop_id) REFERENCES shops(id) ON DELETE CASCADE
       )
     `);

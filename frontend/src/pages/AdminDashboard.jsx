@@ -2,10 +2,10 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ShieldCheck, LogOut, LayoutDashboard, CheckSquare, Users, Settings,
-  MessageSquare, CheckCircle, XCircle, AlertTriangle, Eye, Save, Plus
+  MessageSquare, CheckCircle, XCircle, AlertTriangle, Eye, Save, Plus, Trash2, Store, Package, TrendingUp
 } from "lucide-react";
 import { defaultQuota, cardTypes } from "@/data/mockData";
-import { getAdminDashboard, getPendingApprovals, getAllUsers, getComplaints, getQuotaSettings, approveRegistration, updateQuota, resolveComplaint, addNewQuotaItem } from "@/data/api";
+import { getAdminDashboard, getPendingApprovals, getAllUsers, getComplaints, getQuotaSettings, approveRegistration, updateQuota, resolveComplaint, addNewQuotaItem, removeQuotaItemAPI, getShopsAPI, getShopDemandAPI, allocateStockAPI } from "@/data/api";
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -19,6 +19,9 @@ const AdminDashboard = () => {
   const [allUsers, setAllUsers] = useState([]);
   const [complaints, setComplaints] = useState([]);
   const [quotaData, setQuotaData] = useState(defaultQuota);
+  const [shops, setShops] = useState([]);
+  const [selectedDemand, setSelectedDemand] = useState(null);
+  const [allocationLoading, setAllocationLoading] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -33,10 +36,12 @@ const AdminDashboard = () => {
         ]);
 
         setStats(dash);
-        setApprovals(pending);
-        setAllUsers(users);
-        setComplaints(cmps);
-        setQuotaData(qta);
+         setApprovals(pending);
+         setAllUsers(users);
+         setComplaints(cmps);
+         setQuotaData(qta);
+         const shps = await getShopsAPI();
+         setShops(shps);
       } catch (err) {
         console.error("Error fetching admin dashboard data:", err);
         // Fallback to initial empty states if API calls fail
@@ -55,7 +60,7 @@ const AdminDashboard = () => {
   // Quota Management
   const [editingCard, setEditingCard] = useState("BPL");
   const [quotaSaved, setQuotaSaved] = useState(false);
-  const [newItem, setNewItem] = useState({ itemName: "", quantity: "", price: "", unit: "kg" });
+  const [newItem, setNewItem] = useState({ itemName: "", quantity: "", price: "", unit: "kg", initialStock: "0" });
   const [newItemAdded, setNewItemAdded] = useState(false);
 
   const [viewItem, setViewItem] = useState(null);
@@ -103,11 +108,25 @@ const AdminDashboard = () => {
       const qta = await getQuotaSettings();
       setQuotaData(qta);
       
-      setNewItem({ itemName: "", quantity: "", price: "", unit: "kg" });
+      setNewItem({ itemName: "", quantity: "", price: "", unit: "kg", initialStock: "0" });
       setNewItemAdded(true);
       setTimeout(() => setNewItemAdded(false), 2000);
     } catch (err) {
       alert("Failed to add new item");
+    }
+  };
+
+  const handleRemoveQuotaItem = async (itemName) => {
+    if (!window.confirm(`Are you sure you want to remove '${itemName}' from ${editingCard} quota?`)) return;
+    try {
+      await removeQuotaItemAPI(editingCard, itemName);
+      setQuotaData((prev) => {
+        const updated = { ...prev };
+        updated[editingCard] = updated[editingCard].filter((q) => q.item !== itemName);
+        return updated;
+      });
+    } catch {
+      alert("Failed to remove item.");
     }
   };
 
@@ -126,9 +145,44 @@ const AdminDashboard = () => {
     navigate("/login");
   };
 
+  const handleSectionChange = (key) => {
+    setSection(key);
+  };
+
+  const handleAnalyzeDemand = async (shop) => {
+    setSelectedDemand({ shop, loading: true, data: [] });
+    try {
+      const data = await getShopDemandAPI(shop.id);
+      setSelectedDemand({ shop, loading: false, data });
+    } catch {
+      alert("Failed to analyze demand.");
+      setSelectedDemand(null);
+    }
+  };
+
+  const handleAllocateStock = async () => {
+    if (!selectedDemand) return;
+    setAllocationLoading(true);
+    try {
+      const itemsToAllocate = selectedDemand.data.map(d => ({
+        itemName: d.item,
+        quantity: d.totalDemand // Suggesting full demand coverage
+      }));
+
+      await allocateStockAPI(selectedDemand.shop.id, itemsToAllocate);
+      alert("Stock allocated successfully!");
+      setSelectedDemand(null);
+    } catch {
+      alert("Stock allocation failed.");
+    } finally {
+      setAllocationLoading(false);
+    }
+  };
+
   const navItems = [
     { title: "Overview", icon: LayoutDashboard, key: "overview" },
     { title: "Approvals", icon: CheckSquare, key: "approvals" },
+    { title: "Shop Management", icon: Store, key: "shops" },
     { title: "Quota Management", icon: Settings, key: "quota" },
     { title: "Complaints", icon: MessageSquare, key: "complaints" },
     { title: "All Users", icon: Users, key: "users" },
@@ -264,7 +318,7 @@ const AdminDashboard = () => {
 
                 <div className="table-wrap">
                   <table className="table">
-                    <thead><tr><th>Item</th><th>Quantity</th><th>Price</th></tr></thead>
+                    <thead><tr><th>Item</th><th>Quantity</th><th>Price</th><th style={{ textAlign: "right" }}>Action</th></tr></thead>
                     <tbody>
                       {(quotaData[editingCard] || []).map((q, i) => (
                         <tr key={i}>
@@ -284,6 +338,16 @@ const AdminDashboard = () => {
                               onChange={(e) => updateQuotaItem(i, "price", e.target.value)}
                               style={{ width: "8rem", height: "2rem", fontSize: "0.8125rem" }}
                             />
+                          </td>
+                          <td style={{ textAlign: "right" }}>
+                            <button 
+                              className="btn btn-ghost btn-sm" 
+                              onClick={() => handleRemoveQuotaItem(q.item)}
+                              style={{ color: "var(--danger)" }}
+                              title="Remove item"
+                            >
+                              <Trash2 size={14} />
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -323,6 +387,10 @@ const AdminDashboard = () => {
                   <div className="form-group" style={{ marginBottom: 0, flex: 1, minWidth: "150px" }}>
                     <label className="form-label text-xs">Default Price</label>
                     <input className="form-input" placeholder="e.g. ₹50/L" value={newItem.price} onChange={(e) => setNewItem({...newItem, price: e.target.value})} />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0, flex: 1, minWidth: "100px" }}>
+                    <label className="form-label text-xs">Initial Stock</label>
+                    <input className="form-input" type="number" placeholder="e.g. 500" value={newItem.initialStock} onChange={(e) => setNewItem({...newItem, initialStock: e.target.value})} />
                   </div>
                   <button className="btn btn-secondary" style={{ height: "42px", padding: "0 1.5rem" }} onClick={handleAddNewItem}>
                     <Plus size={14} style={{ marginRight: "0.5rem" }} /> Add Item
@@ -376,6 +444,49 @@ const AdminDashboard = () => {
             </div>
           )}
 
+          {/* SHOP MANAGEMENT */}
+          {section === "shops" && (
+            <div className="card">
+              <div className="card-header">
+                <h2 className="card-title">Shop Management & Demand Analysis</h2>
+                <p className="card-subtitle">Monitor shop inventory needs based on total user registrations</p>
+              </div>
+              <div className="card-body">
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Shop Name</th>
+                        <th>Owner</th>
+                        <th>License</th>
+                        <th>Joined</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {shops.map((s) => (
+                        <tr key={s.id}>
+                          <td style={{ fontWeight: 600 }}>{s.shop_name}</td>
+                          <td>{s.owner_name}</td>
+                          <td style={{ fontFamily: "monospace" }}>{s.license_no}</td>
+                          <td className="text-sm">{new Date(s.created_at).toLocaleDateString()}</td>
+                          <td>
+                            <button 
+                              className="btn btn-outline btn-sm" 
+                              onClick={() => handleAnalyzeDemand(s)}
+                            >
+                              <TrendingUp size={14} /> Analyze Demand
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ALL USERS */}
           {section === "users" && (
             <div className="card">
@@ -402,6 +513,70 @@ const AdminDashboard = () => {
           )}
         </div>
       </div>
+
+      {/* Demand Analysis Modal */}
+      {selectedDemand && (
+        <div className="modal-overlay" onClick={() => setSelectedDemand(null)}>
+          <div className="modal-box" style={{ maxWidth: "800px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="modal-title" style={{ margin: 0 }}>Stock Demand: {selectedDemand.shop.shop_name}</h3>
+              <button className="btn btn-ghost btn-sm" onClick={() => setSelectedDemand(null)}><XCircle size={20} /></button>
+            </div>
+            
+            {selectedDemand.loading ? (
+              <div className="empty-state">Calculating requirements...</div>
+            ) : (
+              <>
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Ration Item</th>
+                        <th>Total Demand</th>
+                        <th>Current Stock</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedDemand.data.map((d) => {
+                        const shortage = d.totalDemand > d.currentRemaining;
+                        return (
+                          <tr key={d.item}>
+                            <td style={{ fontWeight: 700 }}>{d.item}</td>
+                            <td>{d.totalDemand} kg</td>
+                            <td>{d.currentRemaining} kg</td>
+                            <td>
+                              <span className={`badge ${shortage ? "badge-danger" : "badge-success"}`}>
+                                {shortage ? `${(d.totalDemand - d.currentRemaining).toFixed(1)} kg Shortage` : "Sufficient"}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="alert alert-info mt-2">
+                  <Package size={16} />
+                  <span>The <strong>Total Demand</strong> is calculated by multiplying the active user count of each card type by their assigned quota.</span>
+                </div>
+
+                <div className="modal-actions" style={{ marginTop: "1.5rem" }}>
+                  <button className="btn btn-ghost" onClick={() => setSelectedDemand(null)}>Cancel</button>
+                  <button 
+                    className="btn btn-success" 
+                    onClick={handleAllocateStock}
+                    disabled={allocationLoading}
+                  >
+                    {allocationLoading ? "Allocating..." : "Allocate Full Monthly Demand"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* View Modal */}
       {viewItem && (

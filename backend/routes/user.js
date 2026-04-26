@@ -47,28 +47,57 @@ router.get("/profile", async (req, res) => {
 // GET /api/user/quota
 router.get("/quota", async (req, res) => {
   try {
+    const monthYear = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
+
     // Get user's card type
     const [profiles] = await db.query("SELECT card_type FROM user_profiles WHERE user_id = ?", [req.user.id]);
     const cardType = profiles[0]?.card_type || "BPL";
 
-    // Get quota for that card type
-    const [dbQuota] = await db.query("SELECT item_name, quantity, price FROM quota WHERE card_type = ?", [cardType]);
+    // Get defined quota for that card type
+    const [dbQuotaItems] = await db.query("SELECT item_name, quantity, price FROM quota WHERE card_type = ?", [cardType]);
 
-    // Format to match frontend expectations
-    const quota = dbQuota.map(q => ({
-      item: q.item_name,
-      qty: q.quantity,
-      price: q.price
-    }));
+    // Check/Initialize balances for current month
+    const [existingBalances] = await db.query(
+      "SELECT item_name, total_quota, remaining_quota FROM user_balances WHERE user_id = ? AND month_year = ?",
+      [req.user.id, monthYear]
+    );
 
-    res.json({ cardType, quota });
+    let finalQuota = [];
+
+    // Sync: Ensure every quota item has a balance record
+    for (const q of dbQuotaItems) {
+      const exists = existingBalances.find(b => b.item_name === q.item_name);
+      if (!exists) {
+        const qtyNum = parseFloat(q.quantity.replace(/[^0-9.]/g, '')) || 0;
+        await db.query(
+          "INSERT INTO user_balances (user_id, item_name, total_quota, remaining_quota, month_year) VALUES (?, ?, ?, ?, ?)",
+          [req.user.id, q.item_name, qtyNum, qtyNum, monthYear]
+        );
+        // Add to the list we return
+        finalQuota.push({
+          item: q.item_name,
+          total: qtyNum,
+          remaining: qtyNum,
+          price: q.price
+        });
+      } else {
+        finalQuota.push({
+          item: q.item_name,
+          total: exists.total_quota,
+          remaining: exists.remaining_quota,
+          price: q.price
+        });
+      }
+    }
+
+    res.json({ cardType, month: monthYear, quota: finalQuota });
   } catch (error) {
     console.error("Get quota error:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
 
-// GET /api/user/history
+// GET /api/user/history (Original ration_history)
 router.get("/history", async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -95,6 +124,40 @@ router.get("/history", async (req, res) => {
     res.json(Object.values(grouped));
   } catch (error) {
     console.error("Get history error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// GET /api/user/quota-history (Transaction Log)
+router.get("/quota-history", async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    const [rows] = await db.query(
+      `SELECT h.*, s.shop_name 
+       FROM quota_history h
+       LEFT JOIN shops s ON h.shop_id = s.id
+       WHERE h.user_id = ? AND h.action_type = 'COLLECTED'
+       ORDER BY h.timestamp DESC
+       LIMIT ? OFFSET ?`,
+      [req.user.id, limit, offset]
+    );
+
+    const [count] = await db.query("SELECT COUNT(*) as total FROM quota_history WHERE user_id = ? AND action_type = 'COLLECTED'", [req.user.id]);
+
+    res.json({
+      history: rows,
+      pagination: {
+        total: count[0].total,
+        page,
+        limit,
+        pages: Math.ceil(count[0].total / limit)
+      }
+    });
+  } catch (error) {
+    console.error("Get quota history error:", error);
     res.status(500).json({ message: "Server error" });
   }
 });

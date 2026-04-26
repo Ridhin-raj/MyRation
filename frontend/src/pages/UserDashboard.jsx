@@ -6,7 +6,7 @@ import {
   AlertTriangle, ChevronRight
 } from "lucide-react";
 import { defaultQuota, timeSlots, complaintTypes } from "@/data/mockData";
-import { getUserProfile, getUserQuota, getUserHistory, getAssignedShop, getUserShopStock, bookSlot, submitComplaint, getUserAlerts } from "@/data/api";
+import { getUserProfile, getUserQuota, getUserHistory, getAssignedShop, getUserShopStock, bookSlot, submitComplaint, getUserAlerts, getQuotaHistoryAPI } from "@/data/api";
 
 const UserDashboard = () => {
   const navigate = useNavigate();
@@ -21,6 +21,7 @@ const UserDashboard = () => {
   const [shopInfo, setShopInfo] = useState({ name: "Loading...", isOpen: true });
   const [stock, setStock] = useState([]);
   const [history, setHistory] = useState([]);
+  const [quotaHistory, setQuotaHistory] = useState([]);
   const [alerts, setAlerts] = useState([]);
 
   useEffect(() => {
@@ -28,12 +29,13 @@ const UserDashboard = () => {
       setLoading(true);
       try {
         // Fetch everything in parallel
-        const [p, q, s, h, a] = await Promise.all([
+        const [p, q, s, h, a, qha] = await Promise.all([
           getUserProfile().catch(() => null),
           getUserQuota().catch(() => ({ quota: [] })),
           getAssignedShop().catch(() => null),
           getUserHistory().catch(() => []),
           getUserAlerts().catch(() => []),
+          getQuotaHistoryAPI().catch(() => ({ history: [] })),
         ]);
 
         setProfile(p || user);
@@ -41,6 +43,7 @@ const UserDashboard = () => {
         setShopInfo(s);
         setHistory(h);
         setAlerts(a);
+        setQuotaHistory(qha?.history || []);
 
         // If we have a shop, fetch its stock
         if (s && s.id) {
@@ -100,7 +103,7 @@ const UserDashboard = () => {
   const tabs = [
     { key: "overview", label: "Overview", icon: User },
     { key: "quota", label: "Ration Quota", icon: Package },
-    { key: "history", label: "History", icon: Clock },
+    { key: "history", label: "Collection History", icon: Clock },
     { key: "shop", label: "My Shop", icon: Store },
     { key: "slot", label: "Book Slot", icon: Calendar },
     { key: "complaints", label: "Complaints", icon: MessageSquare },
@@ -204,17 +207,25 @@ const UserDashboard = () => {
         {tab === "quota" && (
           <div className="card">
             <div className="card-header">
-              <h3 className="card-title">March 2026 — Monthly Ration Quota</h3>
-              <p className="card-subtitle">Based on your {user.cardType || "BPL"} card type</p>
+              <h3 className="card-title">Monthly Ration Quota</h3>
+              <p className="card-subtitle">Current status of your monthly balance</p>
             </div>
             <div className="card-body">
               {quota.map((q) => (
-                <div key={q.item} className="quota-item">
-                  <div>
-                    <div className="quota-item-name">{q.item}</div>
-                    <div className="quota-item-price">{q.price}</div>
+                <div key={q.item} className="quota-item" style={{ flexDirection: "column", alignItems: "stretch", gap: "0.5rem" }}>
+                  <div className="flex justify-between items-center w-full">
+                    <div>
+                      <div className="quota-item-name">{q.item}</div>
+                      <div className="quota-item-price">Price: {q.price}</div>
+                    </div>
+                    <div className="text-right">
+                       <div style={{ fontWeight: 700, color: "var(--primary)" }}>{q.remaining} kg left</div>
+                       <div className="text-xs text-muted">of {q.total} kg total</div>
+                    </div>
                   </div>
-                  <div className="quota-item-qty">{q.qty}</div>
+                  <div className="stock-bar-track" style={{ height: "6px" }}>
+                    <div className="stock-bar-fill good" style={{ width: `${(q.remaining / q.total) * 100}%` }} />
+                  </div>
                 </div>
               ))}
             </div>
@@ -225,29 +236,58 @@ const UserDashboard = () => {
         {tab === "history" && (
           <div className="card">
             <div className="card-header">
-              <h3 className="card-title">Ration Collection History</h3>
+              <div>
+                <h3 className="card-title">My Collection Records</h3>
+                <p className="card-subtitle">Grouped by collection date</p>
+              </div>
             </div>
             <div className="card-body">
-              {history.map((h) => (
-                <div key={h.month} style={{ borderBottom: "1px solid var(--secondary)", paddingBottom: "1rem", marginBottom: "1rem" }}>
-                  <div className="flex justify-between items-center mb-1">
-                    <strong style={{ fontSize: "0.9375rem" }}>{h.month}</strong>
-                    <span className={`badge ${h.collected ? "badge-success" : "badge-warning"}`}>
-                      {h.collected ? "Collected" : "Not Collected"}
-                    </span>
-                  </div>
-                  <div className="table-wrap">
-                    <table className="table">
-                      <thead><tr><th>Item</th><th>Qty</th><th>Price</th></tr></thead>
-                      <tbody>
-                        {h.items.map((item, i) => (
-                          <tr key={i}><td>{item.item}</td><td>{item.qty}</td><td>{item.price}</td></tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+              {quotaHistory.length === 0 ? (
+                <div className="empty-state"><Clock size={40} /><p>No history available</p></div>
+              ) : (
+                <div className="timeline-container">
+                  {(() => {
+                    const groups = {};
+                    quotaHistory.forEach(h => {
+                      const date = new Date(h.timestamp).toLocaleDateString(undefined, {
+                        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+                      });
+                      if (!groups[date]) groups[date] = [];
+                      groups[date].push(h);
+                    });
+
+                    return Object.entries(groups).map(([date, items]) => (
+                      <div key={date} className="history-group mb-2">
+                        <h4 className="history-date-header">{date}</h4>
+                        <div className="table-wrap no-border">
+                          <table className="table compact-table">
+                            <thead>
+                              <tr>
+                                <th>Time</th>
+                                <th>Item Name</th>
+                                <th>Quantity</th>
+                                <th>Balance After</th>
+                                <th>Location</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {items.map((h) => (
+                                <tr key={h.id}>
+                                  <td className="text-xs text-muted">{new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                                  <td style={{ fontWeight: 600 }}>{h.item_name}</td>
+                                  <td><span className="badge badge-success">Received {h.amount} kg</span></td>
+                                  <td className="text-sm">{h.remaining_quota} kg left / {h.total_quota} kg</td>
+                                  <td className="text-xs text-muted">Shop ID: #{h.shop_id}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ));
+                  })()}
                 </div>
-              ))}
+              )}
             </div>
           </div>
         )}

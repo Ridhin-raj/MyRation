@@ -4,7 +4,7 @@ import {
   ShieldCheck, LogOut, LayoutDashboard, Clock, UserCheck, Package,
   CheckCircle, XCircle, Eye, Plus, Minus
 } from "lucide-react";
-import { getShopkeeperDashboard, getPendingVerifications, getVerifiedBeneficiaries, getShopkeeperStock, verifyUser, updateStock, toggleShopStatus, sellStock } from "@/data/api";
+import { getShopkeeperDashboard, getPendingVerifications, getVerifiedBeneficiaries, getShopkeeperStock, verifyUser, updateStock, toggleShopStatus, sellStock, getBeneficiaryQuotaAPI, collectRationAPI, getShopkeeperStockHistoryAPI, getAssignedStockAPI, receiveStockAPI } from "@/data/api";
 
 const ShopkeeperDashboard = () => {
   const navigate = useNavigate();
@@ -20,16 +20,23 @@ const ShopkeeperDashboard = () => {
   const [pendingApps, setPendingApps] = useState([]);
   const [verifiedList, setVerifiedList] = useState([]);
   const [stock, setStock] = useState([]);
+  const [stockHistory, setStockHistory] = useState([]);
+  const [assignedStock, setAssignedStock] = useState([]);
+
+  // Log filter
+  const [logFilter, setLogFilter] = useState("all");
 
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [dash, pending, verified, stk] = await Promise.all([
+        const [dash, pending, verified, stk, hist, assigned] = await Promise.all([
           getShopkeeperDashboard(),
           getPendingVerifications(), 
           getVerifiedBeneficiaries(),
           getShopkeeperStock(),
+          getShopkeeperStockHistoryAPI().catch(() => []),
+          getAssignedStockAPI().catch(() => []),
         ]);
 
         setStats(dash.stats || { pending: 0, verified: 0, stockItems: 0 });
@@ -37,6 +44,8 @@ const ShopkeeperDashboard = () => {
         setPendingApps(pending);
         setVerifiedList(verified);
         setStock(stk);
+        setStockHistory(hist);
+        setAssignedStock(assigned);
       } catch (err) {
         console.error("Fetch failed:", err);
       } finally {
@@ -51,6 +60,41 @@ const ShopkeeperDashboard = () => {
   const [sellStockItem, setSellStockItem] = useState(null);
   const [addQty, setAddQty] = useState("");
   const [sellQty, setSellQty] = useState("");
+
+  const [collectUser, setCollectUser] = useState(null);
+  const [bQuota, setBQuota] = useState([]);
+  const [collectLoading, setCollectLoading] = useState(false);
+
+  const handleOpenCollect = async (beneficiary) => {
+    setCollectUser(beneficiary);
+    setCollectLoading(true);
+    try {
+      const q = await getBeneficiaryQuotaAPI(beneficiary.id);
+      setBQuota(q);
+    } catch {
+      alert("Failed to load user quota.");
+    } finally {
+      setCollectLoading(false);
+    }
+  };
+
+  const handleCollectRation = async (itemName, amount) => {
+    if (!amount || amount <= 0) return;
+    try {
+      await collectRationAPI({ userId: collectUser.id, itemName, amount });
+      // Update local quota state
+      setBQuota(prev => prev.map(q => q.item_name === itemName ? { ...q, remaining_quota: q.remaining_quota - amount } : q));
+      // Refresh stock and history
+      const [stk, hist] = await Promise.all([
+        getShopkeeperStock(),
+        getShopkeeperStockHistoryAPI()
+      ]);
+      setStock(stk);
+      setStockHistory(hist);
+    } catch (err) {
+      alert(err.message || "Collection failed.");
+    }
+  };
 
   const handleVerify = async (id, action) => {
     try { 
@@ -82,6 +126,8 @@ const ShopkeeperDashboard = () => {
       );
       setAddStockItem(null);
       setAddQty("");
+      const hist = await getShopkeeperStockHistoryAPI();
+      setStockHistory(hist);
     } catch {
       alert("Failed to update stock.");
     }
@@ -97,8 +143,29 @@ const ShopkeeperDashboard = () => {
       );
       setSellStockItem(null);
       setSellQty("");
+      const hist = await getShopkeeperStockHistoryAPI();
+      setStockHistory(hist);
     } catch (err) {
       alert(err.message || "Failed to record sale.");
+    }
+  };
+
+  const handleReceiveStock = async (id) => {
+    try {
+      await receiveStockAPI(id);
+      
+      const [stk, hist, assigned] = await Promise.all([
+        getShopkeeperStock(),
+        getShopkeeperStockHistoryAPI(),
+        getAssignedStockAPI()
+      ]);
+      setStock(stk);
+      setStockHistory(hist);
+      setAssignedStock(assigned);
+      
+      alert("Stock received successfully!");
+    } catch {
+      alert("Failed to receive stock.");
     }
   };
 
@@ -113,6 +180,8 @@ const ShopkeeperDashboard = () => {
     { title: "Pending Verifications", icon: Clock, key: "pending" },
     { title: "Verified Beneficiaries", icon: UserCheck, key: "verified" },
     { title: "Stock / Inventory", icon: Package, key: "inventory" },
+    { title: "Incoming Shipments", icon: ShieldCheck, key: "shipments" },
+    { title: "Stock Log", icon: Clock, key: "stock-log" },
   ];
 
   return (
@@ -231,7 +300,7 @@ const ShopkeeperDashboard = () => {
               <div className="card-body">
                 <div className="table-wrap">
                   <table className="table">
-                    <thead><tr><th>ID</th><th>Name</th><th>Card Type</th><th>Members</th><th>Status</th></tr></thead>
+                    <thead><tr><th>ID</th><th>Name</th><th>Card Type</th><th>Members</th><th>Status</th><th>Action</th></tr></thead>
                     <tbody>
                       {verifiedList.map((v) => (
                         <tr key={v.id}>
@@ -240,6 +309,11 @@ const ShopkeeperDashboard = () => {
                           <td><span className="badge badge-outline">{v.cardType}</span></td>
                           <td>{v.members}</td>
                           <td><span className="badge badge-success">{v.status}</span></td>
+                          <td>
+                            <button className="btn btn-primary btn-sm" onClick={() => handleOpenCollect(v)}>
+                              <Clock size={12} style={{ marginRight: "0.25rem" }} /> Collect
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -259,50 +333,39 @@ const ShopkeeperDashboard = () => {
               <div className="card-body">
                 <div className="table-wrap">
                   <table className="table">
-                    <thead><tr><th>Item</th><th>Allocated</th><th>Distributed</th><th>Remaining</th><th>Stock Level</th><th>Action</th></tr></thead>
+                    <thead>
+                      <tr>
+                        <th>Item</th>
+                        <th>Total Received</th>
+                        <th>Total Distributed</th>
+                        <th>Current Balance</th>
+                        <th style={{ textAlign: 'right' }}>Stock Health</th>
+                      </tr>
+                    </thead>
                     <tbody>
                       {stock.map((s) => {
-                        const remaining = s.allocated - s.distributed;
-                        const pct = Math.round((remaining / s.allocated) * 100);
+                        const remaining = Number(s.allocated) - Number(s.distributed);
+                        const pct = s.allocated > 0 ? Math.round((remaining / s.allocated) * 100) : 0;
                         const level = pct > 50 ? "good" : pct > 20 ? "low" : "critical";
                         return (
-                          <tr key={s.id}>
-                            <td style={{ fontWeight: 700 }}>{s.item}</td>
-                            <td>{s.allocated} {s.unit}</td>
-                            <td>{s.distributed} {s.unit}</td>
-                            <td style={{ fontWeight: 700 }}>{remaining} {s.unit}</td>
-                            <td>
-                              <div className="flex items-center gap-1">
-                                <div className="stock-bar-track">
+                          <tr key={s.id} className={level === "critical" ? "table-row-danger" : level === "low" ? "table-row-warning" : ""}>
+                            <td style={{ fontWeight: 700 }}>
+                              {s.item}
+                              {level === "critical" && <span className="badge badge-danger ml-1" style={{ fontSize: '10px' }}>LOW</span>}
+                            </td>
+                            <td>{s.allocated} kg</td>
+                            <td>{s.distributed} kg</td>
+                            <td style={{ fontWeight: 700, color: level === "critical" ? "var(--primary)" : "inherit" }}>
+                              {remaining.toFixed(1)} kg
+                            </td>
+                            <td style={{ textAlign: 'right' }}>
+                              <div className="flex items-center justify-end gap-2">
+                                <span className={`text-xs font-bold ${level === "good" ? "text-success" : level === "low" ? "text-warning" : "text-danger"}`}>
+                                  {pct}% Available
+                                </span>
+                                <div className="stock-bar-track" style={{ width: "100px" }}>
                                   <div className={`stock-bar-fill ${level}`} style={{ width: `${pct}%` }} />
                                 </div>
-                                <span className={`badge badge-${level === "good" ? "success" : level === "low" ? "warning" : "danger"}`}>{pct}%</span>
-                              </div>
-                            </td>
-                            <td>
-                              <div className="flex gap-1" style={{ flexWrap: "wrap" }}>
-                                {addStockItem === s.id ? (
-                                  <div className="flex items-center gap-1">
-                                    <input className="form-input" type="number" placeholder="Add Qty" value={addQty} onChange={(e) => setAddQty(e.target.value)} style={{ width: "5rem", height: "2rem", fontSize: "0.75rem" }} />
-                                    <button className="btn btn-success btn-sm" onClick={() => handleUpdateStock(s.id)} title="Confirm Add"><Plus size={12} /></button>
-                                    <button className="btn btn-ghost btn-sm" onClick={() => { setAddStockItem(null); setAddQty(""); }}><XCircle size={12} /></button>
-                                  </div>
-                                ) : sellStockItem === s.id ? (
-                                  <div className="flex items-center gap-1">
-                                    <input className="form-input" type="number" placeholder="Sell Qty" value={sellQty} onChange={(e) => setSellQty(e.target.value)} style={{ width: "5rem", height: "2rem", fontSize: "0.75rem" }} />
-                                    <button className="btn btn-primary btn-sm" onClick={() => handleSellStock(s.id)} title="Confirm Sale"><Minus size={12} /></button>
-                                    <button className="btn btn-ghost btn-sm" onClick={() => { setSellStockItem(null); setSellQty(""); }}><XCircle size={12} /></button>
-                                  </div>
-                                ) : (
-                                  <>
-                                    <button className="btn btn-outline btn-sm" onClick={() => { setAddStockItem(s.id); setSellStockItem(null); }}>
-                                      <Plus size={12} /> Add
-                                    </button>
-                                    <button className="btn btn-outline btn-sm" onClick={() => { setSellStockItem(s.id); setAddStockItem(null); }} style={{ borderColor: "var(--primary)", color: "var(--primary)" }}>
-                                      <Minus size={12} /> Sell
-                                    </button>
-                                  </>
-                                )}
                               </div>
                             </td>
                           </tr>
@@ -311,6 +374,136 @@ const ShopkeeperDashboard = () => {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* SHIPMENTS */}
+          {section === "shipments" && (
+            <div className="card">
+              <div className="card-header">
+                <h2 className="card-title">Stock From Admin</h2>
+                <p className="card-subtitle">Pending shipments sent by the district office</p>
+              </div>
+              <div className="card-body">
+                {assignedStock.length === 0 ? (
+                  <div className="empty-state"><Package size={40} /><p>No pending shipments from Admin</p></div>
+                ) : (
+                  <div className="table-wrap">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Item</th>
+                          <th>Quantity</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {assignedStock.map((a) => (
+                          <tr key={a.id}>
+                            <td className="text-sm">{new Date(a.created_at).toLocaleDateString()}</td>
+                            <td style={{ fontWeight: 600 }}>{a.item_name}</td>
+                            <td style={{ fontWeight: 700 }}>{a.quantity} kg</td>
+                            <td>
+                              <button 
+                                className="btn btn-success btn-sm" 
+                                onClick={() => handleReceiveStock(a.id)}
+                              >
+                                Verify & Receive
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* STOCK LOG */}
+          {section === "stock-log" && (
+            <div className="card">
+              <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+                <div>
+                  <h2 className="card-title">Detailed Stock History</h2>
+                  <p className="card-subtitle">Detailed log of all inventory movements</p>
+                </div>
+                <div className="flex gap-1 mb-1">
+                  <button onClick={() => setLogFilter("all")} className={`btn btn-sm ${logFilter === "all" ? "btn-primary" : "btn-ghost"}`}>All</button>
+                  <button onClick={() => setLogFilter("ADDED")} className={`btn btn-sm ${logFilter === "ADDED" ? "btn-success" : "btn-ghost"}`}>Shipments</button>
+                  <button onClick={() => setLogFilter("DISTRIBUTED")} className={`btn btn-sm ${logFilter === "DISTRIBUTED" ? "btn-primary" : "btn-ghost"}`} style={logFilter === "DISTRIBUTED" ? {} : {color: "var(--primary)"}}>Distributions</button>
+                </div>
+              </div>
+              <div className="card-body">
+                {stockHistory.length === 0 ? (
+                  <div className="empty-state"><Clock size={40} /><p>No stock activity recorded</p></div>
+                ) : (
+                  <div className="timeline-container">
+                    {(() => {
+                      const filtered = logFilter === "all" ? stockHistory : stockHistory.filter(h => h.action_type === logFilter);
+                      
+                      if (filtered.length === 0) {
+                        return <div className="empty-state"><Package size={30} /><p>No results for this filter</p></div>;
+                      }
+
+                      // Group by date
+                      const groups = {};
+                      filtered.forEach(h => {
+                        const date = new Date(h.timestamp).toLocaleDateString(undefined, {
+                          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+                        });
+                        if (!groups[date]) groups[date] = [];
+                        groups[date].push(h);
+                      });
+
+                      return Object.entries(groups).map(([date, items]) => (
+                        <div key={date} className="history-group mb-2">
+                          <h3 className="history-date-header">{date}</h3>
+                          <div className="table-wrap no-border">
+                            <table className="table compact-table">
+                              <thead>
+                                <tr>
+                                  <th>Time</th>
+                                  <th>Item</th>
+                                  <th>Event</th>
+                                  <th>Weight</th>
+                                  <th>Source / Destination</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {items.map((h) => (
+                                  <tr key={h.id}>
+                                    <td className="text-xs text-muted">{new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                                    <td style={{ fontWeight: 600 }}>{h.item_name}</td>
+                                    <td>
+                                      <span className={`badge ${h.action_type === 'ADDED' ? 'badge-success' : 'badge-primary'}`}>
+                                        {h.action_type === 'ADDED' ? 'Shipment Received' : 'Ration Distributed'}
+                                      </span>
+                                    </td>
+                                    <td>
+                                      <span style={{ fontWeight: 700, fontSize: '1rem', color: h.action_type === 'ADDED' ? 'var(--success)' : 'var(--primary)' }}>
+                                        {h.action_type === 'ADDED' ? '+' : '-'}{h.quantity} kg
+                                      </span>
+                                    </td>
+                                    <td className="text-sm">
+                                      {h.action_type === 'DISTRIBUTED' 
+                                        ? <span>Beneficiary: <strong>{h.user_name || 'Verified User'}</strong></span> 
+                                        : <span>From: <strong>District Admin</strong></span>
+                                      }
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -332,6 +525,85 @@ const ShopkeeperDashboard = () => {
           </div>
         </div>
       )}
+
+      {/* Collect Ration Modal */}
+      {collectUser && (
+        <div className="modal-overlay" onClick={() => setCollectUser(null)}>
+          <div className="modal-box" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "500px" }}>
+            <div className="flex justify-between items-center mb-1">
+              <h3 className="modal-title">Collect Ration: {collectUser.name}</h3>
+              <button className="btn btn-ghost btn-sm" onClick={() => setCollectUser(null)}><XCircle size={18} /></button>
+            </div>
+            <p className="text-sm text-muted mb-2">Record ration collection for current month</p>
+            
+            {collectLoading ? (
+              <div className="empty-state">Loading quota...</div>
+            ) : bQuota.length === 0 ? (
+              <div className="empty-state">No quota definition found for this user.</div>
+            ) : (
+              <div className="quota-list">
+                {bQuota.map((q) => (
+                  <QuotaCollectRow 
+                    key={q.item_name}
+                    item={q}
+                    stock={stock}
+                    onCollect={handleCollectRation}
+                  />
+                ))}
+              </div>
+            )}
+            
+            <div className="modal-actions mt-2">
+              <button className="btn btn-ghost" onClick={() => setCollectUser(null)}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const QuotaCollectRow = ({ item, stock, onCollect }) => {
+  const [collectAmt, setCollectAmt] = useState("");
+  const available = item.remaining_quota;
+  
+  const stockItem = stock.find(s => s.item.toLowerCase() === item.item_name.toLowerCase());
+  const shopStock = stockItem ? (stockItem.allocated - stockItem.distributed) : 0;
+  
+  const canCollect = Math.min(available, shopStock);
+
+  return (
+    <div className="card" style={{ marginBottom: "1rem", border: "1px solid var(--border)" }}>
+      <div className="card-body" style={{ padding: "0.75rem" }}>
+        <div className="flex justify-between items-center mb-1">
+          <strong style={{ fontSize: "1rem" }}>{item.item_name}</strong>
+          <span className="badge badge-outline">{item.remaining_quota} kg available</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <input 
+            type="number" 
+            className="form-input" 
+            placeholder="Qty to give" 
+            value={collectAmt} 
+            onChange={(e) => setCollectAmt(e.target.value)}
+            max={canCollect}
+            style={{ flex: 1 }}
+          />
+          <button 
+            className="btn btn-success" 
+            onClick={() => {
+              onCollect(item.item_name, parseFloat(collectAmt));
+              setCollectAmt("");
+            }}
+            disabled={!collectAmt || parseFloat(collectAmt) > canCollect || parseFloat(collectAmt) <= 0}
+          >
+            Give
+          </button>
+        </div>
+        <p className="text-xs text-muted mt-1">
+          Shop Stock: {shopStock} kg available
+        </p>
+      </div>
     </div>
   );
 };

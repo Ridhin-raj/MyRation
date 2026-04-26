@@ -27,7 +27,16 @@ async function apiCall(endpoint, options = {}) {
 
   try {
     const response = await fetch(`${BASE_URL}${endpoint}`, config);
-    const data = await response.json();
+    
+    // Check if response is JSON
+    const contentType = response.headers.get("Content-Type");
+    let data;
+    if (contentType && contentType.includes("application/json")) {
+      data = await response.json();
+    } else {
+      const text = await response.text();
+      throw new Error(`Server returned non-JSON response: ${text.substring(0, 100)}...`);
+    }
 
     if (!response.ok) {
       throw new Error(data.message || "Something went wrong");
@@ -168,6 +177,10 @@ export async function getAdminDashboard() {
   return apiCall("/admin/dashboard");
 }
 
+export async function getShopsAPI() {
+  return apiCall("/admin/shops");
+}
+
 export async function getPendingApprovals() {
   return apiCall("/admin/pending");
 }
@@ -194,6 +207,53 @@ export async function addNewQuotaItem(data) {
   return apiCall("/admin/quota/new-item", {
     method: "POST",
     body: JSON.stringify(data),
+  });
+}
+
+export async function removeQuotaItemAPI(cardType, itemName) {
+  return apiCall(`/admin/quota/${cardType}/${itemName}`, {
+    method: "DELETE",
+  });
+}
+
+export async function getQuotaHistoryAPI(page = 1) {
+  return apiCall(`/user/quota-history?page=${page}`);
+}
+
+export async function getBeneficiaryQuotaAPI(userId) {
+  return apiCall(`/shopkeeper/beneficiary-quota/${userId}`);
+}
+
+export async function collectRationAPI(data) {
+  return apiCall("/shopkeeper/collect-ration", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getShopkeeperStockHistoryAPI() {
+  return apiCall("/shopkeeper/stock-history");
+}
+
+export async function getShopDemandAPI(shopId) {
+  return apiCall(`/admin/shops/${shopId}/demand`);
+}
+
+export async function allocateStockAPI(shopId, items) {
+  return apiCall(`/admin/shops/${shopId}/allocate`, {
+    method: "POST",
+    body: JSON.stringify({ items }),
+  });
+}
+
+export async function getAssignedStockAPI() {
+  return apiCall("/shopkeeper/assigned-stock");
+}
+
+export async function receiveStockAPI(assignmentId) {
+  return apiCall("/shopkeeper/receive-stock", {
+    method: "POST",
+    body: JSON.stringify({ assignmentId }),
   });
 }
 
