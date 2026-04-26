@@ -173,20 +173,20 @@ flowchart TD
     P25["2.5 Execute Stock Assignment"]
 
     D_Users[("DB: user_profiles")]
-    D_Stock[("DB: stock (prev month)")]
+    D_Stock[("DB: stock prev month")]
     D_Quota[("DB: quota logic")]
     D_Transit[("DB: assigned_stock")]
 
     Admin -->|Request Demand| P21
-    P21 <-->|Fetch 'Approved' Cards| D_Users
+    P21 <-->|Fetch Approved Cards| D_Users
     P21 --> P22 <-->|Fetch Multipliers| D_Quota
     P22 -->|Gross Demand| P23
-    P23 <-->|Fetch (Allocated-Distributed)| D_Stock
+    P23 <-->|Fetch Allocated minus Distributed| D_Stock
     P23 --> P24
     P24 -->|Net Suggested Shipment| Admin
 
     Admin -->|Confirm Allocation| P25
-    P25 -->|INSERT Status='PENDING' + MM-YYYY| D_Transit
+    P25 -->|INSERT Status PENDING and MonthYear| D_Transit
 ```
 
 #### 4.3. Process 3.0: Inventory Sync & Verification
@@ -204,16 +204,16 @@ flowchart TD
     D_Hist[("DB: stock_history")]
 
     Shopkeeper -->|View Dashboard| P31
-    P31 <-->|Filter by MM-YYYY| D_Transit
+    P31 <-->|Filter by MonthYear| D_Transit
     
     P31 -->|Pending List| Shopkeeper
-    Shopkeeper -->|Click 'Verify & Receive'| P32
+    Shopkeeper -->|Click Verify and Receive| P32
     
-    P32 -->|UPDATE Status='VERIFIED'| D_Transit
+    P32 -->|UPDATE Status VERIFIED| D_Transit
     P32 --> P33
-    P33 -->|INSERT or UPDATE allocated_qty| D_Stock
+    P33 -->|INSERT or UPDATE allocated qty| D_Stock
     P33 --> P34
-    P34 -->|INSERT 'ADDED' Event| D_Hist
+    P34 -->|INSERT ADDED Event| D_Hist
 ```
 
 #### 4.4. Process 4.0: Ration Distribution Loop
@@ -240,7 +240,7 @@ flowchart TD
     Input --> P41 <--> D_Users
     P41 -->|Authorized | P42 <--> D_Bal
     P42 -->|Quota Valid| P43 <--> D_Stock
-    P43 -->|Stock Valid| P44 -->|UPDATE (-)| D_Bal & D_Stock
+    P43 -->|Stock Valid| P44 -->|Subtract and UPDATE| D_Bal & D_Stock
     P44 --> P45 -->|INSERT| D_Hist
     P45 --> Output(["Output: Ration Disbursed"])
     
