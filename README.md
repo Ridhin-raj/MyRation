@@ -72,6 +72,128 @@ Use these pre-seeded accounts to experience all roles. **Note: All passwords are
 Maps the relational dependencies tying identity models (`users`, `shops`) to strictly audited monthly supply ledgers.
 ```mermaid
 erDiagram
+    USERS {
+        int id PK
+        string username "UNIQUE"
+        string password "Hashed"
+        enum role "user, shopkeeper, admin"
+        string name
+        string mobile
+        string aadhaar
+        enum status "pending, approved, rejected"
+        timestamp created_at
+    }
+
+    SHOPS {
+        int id PK
+        int owner_id FK "References USERS(id)"
+        string shop_name
+        string license_no
+        int capacity
+        string state
+        string district
+        string taluk
+        string village
+        string pincode
+        boolean is_open
+        enum status "pending, approved"
+    }
+
+    USER_PROFILES {
+        int id PK
+        int user_id FK
+        date dob
+        enum gender "Male, Female, Other"
+        string ration_card_no "UNIQUE"
+        enum card_type "APL, BPL, AAY, PHH"
+        int family_members
+        string ration_card_image
+        string state
+        string pincode
+        int assigned_shop_id FK
+        boolean verified_by_shopkeeper
+        boolean verified_by_admin
+    }
+
+    STOCK {
+        int id PK
+        int shop_id FK
+        string item_name
+        decimal allocated_qty
+        decimal distributed_qty
+        string unit "kg/ltr"
+        string month_year "e.g., 4-2026"
+        timestamp last_updated
+    }
+
+    ASSIGNED_STOCK {
+        int id PK
+        int shop_id FK
+        string item_name
+        decimal quantity
+        enum status "PENDING, VERIFIED"
+        string month_year
+        timestamp created_at
+    }
+
+    QUOTA {
+        int id PK
+        enum card_type "APL/BPL/AAY/PHH"
+        string item_name "Rice/Dal/Sugar"
+        string quantity
+        string price
+    }
+
+    USER_BALANCES {
+        int id PK
+        int user_id FK
+        string item_name
+        decimal total_quota
+        decimal remaining_quota
+        string month_year "Month binding"
+    }
+
+    QUOTA_HISTORY {
+        int id PK
+        int user_id FK
+        int shop_id FK
+        enum action_type "COLLECTED"
+        string item_name
+        decimal amount
+        decimal remaining_quota
+        decimal total_quota
+        timestamp timestamp
+    }
+
+    STOCK_HISTORY {
+        int id PK
+        int shop_id FK
+        string item_name
+        enum action_type "ADDED, DISTRIBUTED"
+        decimal quantity
+        int user_id FK "Nullable"
+        timestamp timestamp
+    }
+
+    COMPLAINTS {
+        int id PK
+        int user_id FK
+        int shop_id FK
+        string complaint_type
+        text message
+        enum status "pending, resolved"
+        text admin_response
+    }
+
+    ALERTS {
+        int id PK
+        int user_id FK
+        int shop_id FK
+        string message
+        enum alert_type
+        boolean is_read
+    }
+
     USERS ||--o| USER_PROFILES : "Extends Profile"
     USERS ||--o{ SHOPS : "Manages (owner_id)"
     SHOPS ||--o{ USER_PROFILES : "Serves Beneficiaries"
