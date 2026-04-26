@@ -359,18 +359,31 @@ router.get("/shops/:id/demand", async (req, res) => {
       });
     });
 
-    // 4. Get current stock for comparison
+    // 4. Get current stock and previous month surplus
+    const now = new Date();
+    const currentMonth = `${now.getMonth() + 1}-${now.getFullYear()}`;
+    
+    const prevDate = new Date();
+    prevDate.setMonth(now.getMonth() - 1);
+    const prevMonth = `${prevDate.getMonth() + 1}-${prevDate.getFullYear()}`;
+
     const [currentStock] = await db.query(
-      "SELECT item_name, allocated_qty, distributed_qty FROM stock WHERE shop_id = ?",
-      [shopId]
+      "SELECT item_name, allocated_qty, distributed_qty, month_year FROM stock WHERE shop_id = ? AND (month_year = ? OR month_year = ?)",
+      [shopId, currentMonth, prevMonth]
     );
 
     const result = Object.values(demand).map(d => {
-      const stock = currentStock.find(s => s.item_name === d.item);
+      const curStockItem = currentStock.find(s => s.item_name === d.item && s.month_year === currentMonth);
+      const prevStockItem = currentStock.find(s => s.item_name === d.item && s.month_year === prevMonth);
+      
+      const prevSurplus = prevStockItem ? (parseFloat(prevStockItem.allocated_qty) - parseFloat(prevStockItem.distributed_qty)) : 0;
+      const netRequired = Math.max(0, d.totalDemand - prevSurplus);
+
       return {
         ...d,
-        currentAllocated: stock ? parseFloat(stock.allocated_qty) : 0,
-        currentRemaining: stock ? (parseFloat(stock.allocated_qty) - parseFloat(stock.distributed_qty)) : 0
+        currentMonthAllocated: curStockItem ? parseFloat(curStockItem.allocated_qty) : 0,
+        previousMonthSurplus: prevSurplus,
+        suggestedShipment: netRequired
       };
     });
 
@@ -385,20 +398,36 @@ router.get("/shops/:id/demand", async (req, res) => {
 router.post("/shops/:id/allocate", async (req, res) => {
   try {
     const shopId = req.params.id;
-    const { items } = req.body; // Array of { itemName, quantity }
+    const { items } = req.body; 
+    const now = new Date();
+    const monthYear = `${now.getMonth() + 1}-${now.getFullYear()}`;
 
     for (const item of items) {
       await db.query(
-        `INSERT INTO assigned_stock (shop_id, item_name, quantity, status) 
-         VALUES (?, ?, ?, 'PENDING')`,
-        [shopId, item.itemName, item.quantity]
+        `INSERT INTO assigned_stock (shop_id, item_name, quantity, status, month_year) 
+         VALUES (?, ?, ?, 'PENDING', ?)`,
+        [shopId, item.itemName, item.quantity, monthYear]
       );
     }
-
-    res.json({ message: "Stock assignment created. Shopkeeper needs to verify and receive it." });
+    res.json({ message: "Stock assignment created for current month." });
   } catch (error) {
     console.error("Allocate stock error:", error);
     res.status(500).json({ message: "Server error" });
+  }
+});
+
+// POST /api/admin/monthly-reset
+router.post("/monthly-reset", async (req, res) => {
+  try {
+    const now = new Date();
+    const monthYear = `${now.getMonth() + 1}-${now.getFullYear()}`;
+    
+    // 1. Mark all pending user balances for previous month as expired (implicitly happens since we filter by current month)
+    // 2. We don't actually delete data, we just start fresh for stock in the new month.
+    
+    res.json({ message: `Monthly cycle for ${monthYear} is now active.` });
+  } catch (error) {
+    res.status(500).json({ message: "Reset failed" });
   }
 });
 

@@ -166,7 +166,7 @@ const AdminDashboard = () => {
     try {
       const itemsToAllocate = selectedDemand.data.map(d => ({
         itemName: d.item,
-        quantity: d.totalDemand // Suggesting full demand coverage
+        quantity: d.suggestedShipment
       }));
 
       await allocateStockAPI(selectedDemand.shop.id, itemsToAllocate);
@@ -532,23 +532,25 @@ const AdminDashboard = () => {
                     <thead>
                       <tr>
                         <th>Ration Item</th>
-                        <th>Total Demand</th>
-                        <th>Current Stock</th>
-                        <th>Status</th>
+                        <th>Monthly Demand</th>
+                        <th>Previous Surplus</th>
+                        <th>Net Suggested</th>
                       </tr>
                     </thead>
                     <tbody>
                       {selectedDemand.data.map((d) => {
-                        const shortage = d.totalDemand > d.currentRemaining;
                         return (
                           <tr key={d.item}>
                             <td style={{ fontWeight: 700 }}>{d.item}</td>
                             <td>{d.totalDemand} kg</td>
-                            <td>{d.currentRemaining} kg</td>
+                            <td className={d.previousMonthSurplus > 0 ? "text-success font-bold" : ""}>
+                              {d.previousMonthSurplus.toFixed(1)} kg
+                            </td>
                             <td>
-                              <span className={`badge ${shortage ? "badge-danger" : "badge-success"}`}>
-                                {shortage ? `${(d.totalDemand - d.currentRemaining).toFixed(1)} kg Shortage` : "Sufficient"}
-                              </span>
+                              <div className="flex flex-col">
+                                <span className="font-bold text-primary">{d.suggestedShipment.toFixed(1)} kg</span>
+                                {d.previousMonthSurplus > 0 && <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Demand {d.totalDemand} - Surplus {d.previousMonthSurplus}</span>}
+                              </div>
                             </td>
                           </tr>
                         );

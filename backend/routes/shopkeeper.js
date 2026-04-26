@@ -153,10 +153,12 @@ router.get("/stock", async (req, res) => {
     }
     
     const shopId = shops[0].id;
+    const now = new Date();
+    const monthYear = (now.getMonth() + 1) + '-' + now.getFullYear();
 
     const [rows] = await db.query(
-      "SELECT id, item_name, allocated_qty, distributed_qty, unit, last_updated FROM stock WHERE shop_id = ?",
-      [shopId]
+      "SELECT id, item_name, allocated_qty, distributed_qty, unit, last_updated FROM stock WHERE shop_id = ? AND month_year = ?",
+      [shopId, monthYear]
     );
 
     const formattedStock = rows.map(r => ({
@@ -495,10 +497,12 @@ router.get("/assigned-stock", async (req, res) => {
     const [shops] = await db.query("SELECT id FROM shops WHERE owner_id = ?", [req.user.id]);
     if (shops.length === 0) return res.status(404).json({ message: "Shop not found" });
     const shopId = shops[0].id;
+    const now = new Date();
+    const monthYear = (now.getMonth() + 1) + '-' + now.getFullYear();
 
     const [rows] = await db.query(
-      "SELECT * FROM assigned_stock WHERE shop_id = ? AND status = 'PENDING' ORDER BY created_at DESC",
-      [shopId]
+      "SELECT * FROM assigned_stock WHERE shop_id = ? AND status = 'PENDING' AND month_year = ? ORDER BY created_at DESC",
+      [shopId, monthYear]
     );
     res.json(rows);
   } catch (error) {
@@ -527,7 +531,7 @@ router.post("/receive-stock", async (req, res) => {
       return res.status(404).json({ message: "Pending assignment not found" });
     }
 
-    const { item_name, quantity } = assignment[0];
+    const { item_name, quantity, month_year } = assignment[0];
 
     // 2. Update status
     await connection.query(
@@ -535,12 +539,12 @@ router.post("/receive-stock", async (req, res) => {
       [assignmentId]
     );
 
-    // 3. Update shop inventory (allocated_qty) - Using UPSERT logic
+    // 3. Update shop inventory (allocated_qty) - Using UPSERT logic with month_year
     await connection.query(
-      `INSERT INTO stock (shop_id, item_name, allocated_qty, distributed_qty, unit) 
-       VALUES (?, ?, ?, 0, 'kg')
+      `INSERT INTO stock (shop_id, item_name, allocated_qty, distributed_qty, unit, month_year) 
+       VALUES (?, ?, ?, 0, 'kg', ?)
        ON DUPLICATE KEY UPDATE allocated_qty = allocated_qty + ?`,
-      [shopId, item_name, quantity, quantity]
+      [shopId, item_name, quantity, month_year, quantity]
     );
 
     // 4. Record history
