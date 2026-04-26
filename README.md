@@ -173,20 +173,20 @@ flowchart TD
     P25["2.5 Execute Stock Assignment"]
 
     D_Users[("DB: user_profiles")]
-    D_Stock[("DB: stock prev month")]
+    D_Stock[("DB: stock (prev month)")]
     D_Quota[("DB: quota logic")]
     D_Transit[("DB: assigned_stock")]
 
-    Admin -->|Request Demand| P21
-    P21 <-->|Fetch Approved Cards| D_Users
-    P21 --> P22 <-->|Fetch Multipliers| D_Quota
-    P22 -->|Gross Demand| P23
-    P23 <-->|Fetch Allocated minus Distributed| D_Stock
+    Admin -->|"Request Demand"| P21
+    P21 <-->|"Fetch 'Approved' Cards"| D_Users
+    P21 --> P22 <-->|"Fetch Multipliers"| D_Quota
+    P22 -->|"Gross Demand"| P23
+    P23 <-->|"Fetch (Allocated-Distributed)"| D_Stock
     P23 --> P24
-    P24 -->|Net Suggested Shipment| Admin
+    P24 -->|"Net Suggested Shipment"| Admin
 
-    Admin -->|Confirm Allocation| P25
-    P25 -->|INSERT Status PENDING and MonthYear| D_Transit
+    Admin -->|"Confirm Allocation"| P25
+    P25 -->|"INSERT Status='PENDING' + MM-YYYY"| D_Transit
 ```
 
 #### 4.3. Process 3.0: Inventory Sync & Verification
