@@ -2,13 +2,15 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Check, Edit2, ShieldCheck, LogOut } from "lucide-react";
 import { states, districtsByState, taluksByDistrict } from "@/data/mockData";
-import { registerShopkeeperAPI } from "@/data/api";
+import { registerShopkeeperAPI, checkUsernameAPI } from "@/data/api";
 
 const ShopkeeperRegister = () => {
   const navigate = useNavigate();
   const [submitted, setSubmitted] = useState(false);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  const [usernameStatus, setUsernameStatus] = useState({ checked: false, available: false, msg: "" });
+  const [verifying, setVerifying] = useState(false);
   const currentUser = JSON.parse(localStorage.getItem("currentUser") || "null");
 
   const handleLogout = () => {
@@ -26,6 +28,25 @@ const ShopkeeperRegister = () => {
   const update = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     setErrors((prev) => ({ ...prev, [key]: "" }));
+    if (key === "username") {
+      setUsernameStatus({ checked: false, available: false, msg: "" });
+    }
+  };
+
+  const handleVerifyUsername = async () => {
+    if (!form.username) {
+      setErrors((prev) => ({ ...prev, username: "Please enter a username first" }));
+      return;
+    }
+    setVerifying(true);
+    try {
+      const res = await checkUsernameAPI(form.username);
+      setUsernameStatus({ checked: true, available: res.available, msg: res.message });
+    } catch (err) {
+      setUsernameStatus({ checked: true, available: false, msg: "Error checking availability" });
+    } finally {
+      setVerifying(false);
+    }
   };
 
   const districts = form.state ? districtsByState[form.state] || [] : [];
@@ -45,6 +66,13 @@ const ShopkeeperRegister = () => {
     if (!form.district) err.district = "Required";
     if (!form.village) err.village = "Required";
     if (!form.pincode || form.pincode.length !== 6) err.pincode = "Enter 6-digit pincode";
+
+    if (usernameStatus.checked && !usernameStatus.available) {
+      err.username = "Username is already taken";
+    } else if (!usernameStatus.checked) {
+      err.username = "Please verify your username first";
+    }
+
     setErrors(err);
     return Object.keys(err).length === 0;
   };
@@ -136,7 +164,28 @@ const ShopkeeperRegister = () => {
             <div className="grid-2">
               <div className="form-group">
                 <label className="form-label">Create Username *</label>
-                <input className="form-input" value={form.username} onChange={(e) => update("username", e.target.value)} placeholder="e.g. shop_owner_1" />
+                <div className="flex gap-1">
+                  <input 
+                    className="form-input" 
+                    value={form.username} 
+                    onChange={(e) => update("username", e.target.value)} 
+                    placeholder="e.g. shop_owner_1" 
+                  />
+                  <button 
+                    type="button"
+                    className={`btn ${usernameStatus.available ? 'btn-success' : 'btn-outline'} btn-sm`}
+                    onClick={handleVerifyUsername}
+                    disabled={verifying || !form.username}
+                    style={{ whiteSpace: 'nowrap' }}
+                  >
+                    {verifying ? "..." : "Verify"}
+                  </button>
+                </div>
+                {usernameStatus.checked && (
+                  <small style={{ color: usernameStatus.available ? "var(--success)" : "var(--danger)" }}>
+                    {usernameStatus.msg}
+                  </small>
+                )}
                 {errors.username && <small style={{ color: "var(--danger)" }}>{errors.username}</small>}
               </div>
               <div className="form-group">

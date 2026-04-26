@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Check, Edit2, ShieldCheck, Upload, LogOut } from "lucide-react";
 import { states, districtsByState, taluksByDistrict, mockShops, cardTypes, genderOptions } from "@/data/mockData";
-import { getPublicShops, registerUserAPI } from "@/data/api";
+import { getPublicShops, registerUserAPI, checkUsernameAPI } from "@/data/api";
 
 const UserRegister = () => {
   const navigate = useNavigate();
@@ -13,6 +13,8 @@ const UserRegister = () => {
   const [shops, setShops] = useState([]);
   const [regData, setRegData] = useState(null);
   const [isUsingMock, setIsUsingMock] = useState(false);
+  const [usernameStatus, setUsernameStatus] = useState({ checked: false, available: false, msg: "" });
+  const [verifying, setVerifying] = useState(false);
   const currentUser = JSON.parse(localStorage.getItem("currentUser") || "null");
 
   const handleLogout = () => {
@@ -48,6 +50,25 @@ const UserRegister = () => {
   const update = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     setErrors((prev) => ({ ...prev, [key]: "" }));
+    if (key === "username") {
+      setUsernameStatus({ checked: false, available: false, msg: "" });
+    }
+  };
+
+  const handleVerifyUsername = async () => {
+    if (!form.username) {
+      setErrors((prev) => ({ ...prev, username: "Please enter a username first" }));
+      return;
+    }
+    setVerifying(true);
+    try {
+      const res = await checkUsernameAPI(form.username);
+      setUsernameStatus({ checked: true, available: res.available, msg: res.message });
+    } catch (err) {
+      setUsernameStatus({ checked: true, available: false, msg: "Error checking availability" });
+    } finally {
+      setVerifying(false);
+    }
   };
 
   const handleImageUpload = (e) => {
@@ -85,6 +106,13 @@ const UserRegister = () => {
     if (!form.village) err.village = "Required";
     if (!form.pincode || form.pincode.length !== 6) err.pincode = "Enter 6-digit pincode";
     if (!form.selectedShop) err.selectedShop = "Please select a shop";
+    
+    if (usernameStatus.checked && !usernameStatus.available) {
+      err.username = "Username is already taken";
+    } else if (!usernameStatus.checked) {
+      err.username = "Please verify your username first";
+    }
+
     setErrors(err);
     return Object.keys(err).length === 0;
   };
@@ -209,7 +237,28 @@ const UserRegister = () => {
             <div className="grid-2">
               <div className="form-group">
                 <label className="form-label">Create Username *</label>
-                <input className="form-input" value={form.username} onChange={(e) => update("username", e.target.value)} placeholder="e.g. venky_rao" />
+                <div className="flex gap-1">
+                  <input 
+                    className="form-input" 
+                    value={form.username} 
+                    onChange={(e) => update("username", e.target.value)} 
+                    placeholder="e.g. venky_rao" 
+                  />
+                  <button 
+                    type="button"
+                    className={`btn ${usernameStatus.available ? 'btn-success' : 'btn-outline'} btn-sm`}
+                    onClick={handleVerifyUsername}
+                    disabled={verifying || !form.username}
+                    style={{ whiteSpace: 'nowrap' }}
+                  >
+                    {verifying ? "..." : "Verify"}
+                  </button>
+                </div>
+                {usernameStatus.checked && (
+                  <small style={{ color: usernameStatus.available ? "var(--success)" : "var(--danger)" }}>
+                    {usernameStatus.msg}
+                  </small>
+                )}
                 {errors.username && <small style={{ color: "var(--danger)" }}>{errors.username}</small>}
               </div>
               <div className="form-group">

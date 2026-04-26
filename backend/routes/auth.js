@@ -234,4 +234,23 @@ router.get("/shops", async (req, res) => {
   }
 });
 
+// ===============================
+// GET /api/auth/check-username/:username
+// ===============================
+router.get("/check-username/:username", async (req, res) => {
+  try {
+    const { username } = req.params;
+    const [rows] = await db.query("SELECT id FROM users WHERE username = ?", [username]);
+    
+    if (rows.length > 0) {
+      return res.json({ available: false, message: "Username is already taken" });
+    }
+    
+    res.json({ available: true, message: "Username is available" });
+  } catch (error) {
+    console.error("Check username error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 module.exports = router;

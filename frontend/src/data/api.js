@@ -63,6 +63,10 @@ export async function registerShopkeeperAPI(data) {
   });
 }
 
+export async function checkUsernameAPI(username) {
+  return apiCall(`/auth/check-username/${username}`);
+}
+
 // ---- Public/Common APIs ----
 export async function getPublicShops() {
   return apiCall("/auth/shops"); // Public route to list shops for registration
