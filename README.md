@@ -11,6 +11,18 @@ A state-of-the-art Digital Public Distribution System (PDS) designed to streamli
 
 ---
 
+## 📝 Abstract
+
+The Public Distribution System (PDS) is a critical infrastructure for food security; however, traditional ration distribution networks often suffer from inefficiencies, lack of transparency, and commodity leakage. To address these challenges, we propose the **Smart Ration Management System (SRMS)**, a state-of-the-art digital platform designed to modernize and streamline the distribution of essential commodities. 
+
+The SRMS introduces a robust, **Demand-Driven Supply Chain** model that shifts away from arbitrary bulk stock deliveries. Utilizing an algorithmic resource allocation approach, the system aggregates the exact requirements of active beneficiaries assigned to a specific Fair Price Shop (FPS) and factors in previous month surpluses to calculate precise monthly shipments. This prevents both resource hoarding and artificial shortages.
+
+The platform is built on a modern technology stack utilizing **React.js** for a responsive frontend, **Node.js/Express.js** for the backend architecture, and **MySQL** for rigorous relational database management. To ensure security and accountability, the system enforces **Role-Based Access Control (RBAC)** across three primary actors: District Administrators, Shopkeepers, and Beneficiaries. Security is further bolstered through JSON Web Token (JWT) authentication.
+
+Key features of the system include real-time inventory syncing via atomic SQL updates, dynamic quota management catering to multiple card types (APL, BPL, AAY, and PHH), a centralized complaint management channel, and a slot booking system to alleviate physical queues. Furthermore, an immutable transaction audit log guarantees that every kilogram of allocated stock is accurately tracked from the district level down to the individual beneficiary. By bridging the gap between administrators, local shops, and citizens, the SRMS ensures a transparent, highly accountable, and user-centric approach to public resource distribution.
+
+---
+
 ## 📽️ Presentation Highlight: Why this Project?
 
 *   **Transparency**: Digital tracking prevents "leakage" of ration commodities.
