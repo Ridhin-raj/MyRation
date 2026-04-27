@@ -226,27 +226,30 @@ flowchart TD
     Shopkeeper([Shopkeeper])
     Admin([District Admin])
 
-    P11["1.1 Submit Profile (w/ Aadhaar)"]
-    P12["1.2 Hash Password & Store Profile"]
-    P13["1.3 Shopkeeper Local Verification"]
-    P14["1.4 Admin Final Approval"]
+    P11["1.1 Submit Beneficiary Profile"]
+    P12["1.2 Submit Shopkeeper Registration"]
+    P13["1.3 Hash Password & Store Data"]
+    P14["1.4 Shopkeeper Local Verification"]
+    P15["1.5 Admin Final Approval"]
 
     D_Users[("DB: users & user_profiles")]
     D_Shops[("DB: shops")]
 
-    Beneficiary -->|Details & Docs| P11
-    Shopkeeper -->|Shop Details| P11
+    Beneficiary -->|Details & Aadhaar| P11
+    Shopkeeper -->|Shop Details & License| P12
 
-    P11 --> P12
-    P12 -->|INSERT Status: Pending| D_Users
-    P12 -->|INSERT Status: Pending| D_Shops
+    P11 --> P13
+    P12 --> P13
+    
+    P13 -->|INSERT User Status: Pending| D_Users
+    P13 -->|INSERT Shop Status: Pending| D_Shops
 
-    Shopkeeper -->|Verify Assigned Users| P13
-    P13 -->|UPDATE verified_by_sk=TRUE| D_Users
+    Shopkeeper -->|Verify Assigned Users| P14
+    P14 -->|UPDATE verified_by_sk=TRUE| D_Users
 
-    Admin -->|Review Pending List| P14
-    P14 -->|UPDATE Status=Approved| D_Users
-    P14 -->|UPDATE Status=Approved| D_Shops
+    Admin -->|Review Pending List| P15
+    P15 -->|UPDATE User Status=Approved| D_Users
+    P15 -->|UPDATE Shop Status=Approved| D_Shops
 ```
 
 #### 2.3.2 Process 2.0: Algorithmic Supply Push

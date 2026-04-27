@@ -66,6 +66,150 @@ Use these pre-seeded accounts to experience all roles. **Note: All passwords are
 
 ---
 
+## 📋 Requirement Analysis
+
+### 1. Functional Requirements
+
+#### R.1 LOGIN
+
+**R.1.1 User Login**
+
+**I. Login Selection**
+* **Description:** Selection of “Login” option.
+* **Input:** User selects the Login option.
+* **Output:** Prompted to enter Username and Password.
+
+**II. Login Verification**
+* **Description:** Verifies the entered Username and Password. If valid, the system checks the user role and approval status.
+* **Input:** Username and Password entered.
+* **Output:**
+  * If Admin, redirects to Admin Dashboard.
+  * If Shopkeeper, redirects to Shopkeeper Dashboard after approval verification.
+  * If Beneficiary/User, redirects to User Dashboard after approval verification.
+
+**III. Invalid Login Handling**
+* **Description:** Displays error message for incorrect credentials or pending approval.
+* **Input:** Wrong Username/Password or unapproved account.
+* **Output:** Error message such as “Invalid Username or Password” or “Account Pending Approval”.
+
+---
+
+#### R.2 REGISTRATION
+
+**R.2.1 Beneficiary Registration**
+
+**I. Selection of “Register” Option**
+* **Description:** Starts beneficiary registration process.
+* **Input:** User selects registration option.
+* **Output:** Prompted to enter personal and ration details.
+
+**II. Registration**
+* **Description:** Registers beneficiary by entering required details.
+* **Input:** Name, Aadhaar, mobile, ration card number, card type, address, selected shop, password, username.
+* **Output:** Confirmation message “Registration Submitted Successfully”.
+* **Process:** Details stored in database with pending approval status.
+
+**R.2.2 Shopkeeper Registration**
+
+**I. Selection of “Register as Shopkeeper” Option**
+* **Description:** Starts shopkeeper registration process.
+* **Input:** User selects shopkeeper registration.
+* **Output:** Prompted to enter owner and shop details.
+
+**II. Registration**
+* **Description:** Registers shopkeeper and shop information.
+* **Input:** Owner name, mobile, Aadhaar, shop name, license number, location, password, username.
+* **Output:** Confirmation message “Shop Registration Submitted”.
+* **Process:** Shopkeeper details stored with pending admin approval.
+
+---
+
+#### R.3 BENEFICIARY SERVICES
+
+**R.3.1 View Profile**
+* **Description:** Displays beneficiary profile details.
+* **Input:** Select Profile option.
+* **Output:** Name, ration card type, address, assigned shop details displayed.
+
+**R.3.2 View Monthly Quota** 
+* **Description:** Displays allocated monthly ration items.
+* **Input:** Select Quota option.
+* **Output:** Rice, wheat, sugar, kerosene and quantity displayed based on card type.
+
+**R.3.3 View Distribution History**
+* **Description:** Displays ration collection history.
+* **Input:** Select History option.
+* **Output:** List of previous ration transactions.
+
+**R.3.4 View Alerts/Notifications**
+* **Description:** Displays stock arrival and notification alerts.
+* **Input:** Select Alerts option.
+* **Output:** New stock and announcements displayed.
+
+---
+
+#### R.4 SHOPKEEPER SERVICE
+
+**R.4.1 View Shop Stock**
+* **Description:** Displays available stock in ration shop.
+* **Input:** Select Stock option.
+* **Output:** Item name, allocated quantity, distributed quantity, available balance.
+
+**R.4.2 Update Stock**
+* **Description:** Adds new stock to ration shop inventory.
+* **Input:** Item selected and quantity entered.
+* **Output:** Stock updated successfully.
+
+**R.4.3 Distribute Ration**
+* **Description:** Records ration issued to beneficiaries.
+* **Input:** Select item and quantity sold.
+* **Output:** Distribution recorded and stock updated.
+
+---
+
+#### R.5 ADMIN SERVICE
+
+**R.5.1 Dashboard Management**
+* **Description:** Displays overall system statistics.
+* **Input:** Open dashboard.
+* **Output:** Total users, pending approvals, pending complaints displayed.
+
+**R.5.2 Approve Registrations**
+* **Description:** Admin verifies pending beneficiary and shopkeeper accounts.
+* **Input:** Select pending request and approve/reject.
+* **Output:** Registration status updated.
+
+**R.5.3 Manage Quota**
+* **Description:** Admin sets ration quantity and price for card types.
+* **Input:** Card type, item name, quantity, price.
+* **Output:** Quota updated successfully.
+
+**R.5.4 Add New Item**
+* **Description:** Adds new ration item to all card categories and shop stocks.
+* **Input:** Item name, quantity, price, unit.
+* **Output:** New item added successfully.
+
+**R.5.5 Complaint Management**
+* **Description:** Admin reviews and resolves complaints.
+* **Input:** Complaint ID and action (resolve/warn/dismiss).
+* **Output:** Complaint status updated.
+
+---
+
+#### R.6 COMPLAINT MANAGEMENT
+
+**R.6.1 File Complaint**
+* **Description:** Beneficiary can submit complaint against ration shop.
+* **Input:** Shop details, complaint description.
+* **Output:** Complaint registered successfully.
+
+**R.6.2 Warning Alert**
+* **Description:** Sends warning notification to shopkeeper if complaint verified.
+* **Input:** Admin selects warning action.
+* **Output:** Warning alert sent to shopkeeper.
+
+---
+
 ## 📊 System Architecture & Data Flow
 
 ### 1. Entity-Relationship (ER) Diagram
@@ -260,27 +404,30 @@ flowchart TD
     Shopkeeper([Shopkeeper])
     Admin([District Admin])
 
-    P11["1.1 Submit Profile (w/ Aadhaar)"]
-    P12["1.2 Hash Password & Store Profile"]
-    P13["1.3 Shopkeeper Local Verification"]
-    P14["1.4 Admin Final Approval"]
+    P11["1.1 Submit Beneficiary Profile"]
+    P12["1.2 Submit Shopkeeper Registration"]
+    P13["1.3 Hash Password & Store Data"]
+    P14["1.4 Shopkeeper Local Verification"]
+    P15["1.5 Admin Final Approval"]
 
     D_Users[("DB: users & user_profiles")]
     D_Shops[("DB: shops")]
 
-    Beneficiary -->|Details & Docs| P11
-    Shopkeeper -->|Shop Details| P11
+    Beneficiary -->|Details & Aadhaar| P11
+    Shopkeeper -->|Shop Details & License| P12
 
-    P11 --> P12
-    P12 -->|INSERT Status: Pending| D_Users
-    P12 -->|INSERT Status: Pending| D_Shops
+    P11 --> P13
+    P12 --> P13
+    
+    P13 -->|INSERT User Status: Pending| D_Users
+    P13 -->|INSERT Shop Status: Pending| D_Shops
 
-    Shopkeeper -->|Verify Assigned Users| P13
-    P13 -->|UPDATE verified_by_sk=TRUE| D_Users
+    Shopkeeper -->|Verify Assigned Users| P14
+    P14 -->|UPDATE verified_by_sk=TRUE| D_Users
 
-    Admin -->|Review Pending List| P14
-    P14 -->|UPDATE Status=Approved| D_Users
-    P14 -->|UPDATE Status=Approved| D_Shops
+    Admin -->|Review Pending List| P15
+    P15 -->|UPDATE User Status=Approved| D_Users
+    P15 -->|UPDATE Shop Status=Approved| D_Shops
 ```
 
 #### 4.2. Process 2.0: Algorithmic Supply Push
