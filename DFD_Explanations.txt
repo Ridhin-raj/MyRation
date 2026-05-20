@@ -1,0 +1,98 @@
+Smart Ration Management System (SRMS)
+Data Flow Diagrams - Detailed Data Flow Explanations
+
+This document provides a step-by-step breakdown of exactly how data flows between entities, processes, and data stores across the system.
+
+=========================================
+Level 0: Context Diagram Data Flow
+=========================================
+The Level 0 diagram shows the entire system as a single process interacting with three external entities.
+
+1. Beneficiary Data Flows:
+   -> INBOUND: The Beneficiary sends "Profile registration" (personal details like Aadhaar) and "Ration collection requests" (intent to purchase) into the system.
+   <- OUTBOUND: The System sends back "Monthly quota balance" (how much ration is left to claim) and "Stock arrival notifications" (alerts when the local shop receives inventory).
+
+2. Shopkeeper Data Flows:
+   -> INBOUND: The Shopkeeper sends "Shop registration & ration sale transactions" (license details during onboarding, and point-of-sale data during distribution) into the system.
+   <- OUTBOUND: The System sends back "Shipment notifications & inventory level alerts" to inform the shopkeeper of incoming logistics and current stock.
+
+3. District Admin Data Flows:
+   -> INBOUND: The Admin sends "Approval decisions & stock shipment orders" (verifying pending users/shops and initiating monthly supply chains).
+   <- OUTBOUND: The System generates "System statistics & pending request reports" for the Admin's dashboard.
+
+
+=========================================
+Level 1: Subsystem Modules Data Flow
+=========================================
+This diagram decomposes the system into four major processes and maps how data routes into two primary databases (D1 and D2).
+
+1. Flow into Process 1.0 (Registration):
+   - Admin sends: "Login credentials & role assignment".
+   - Beneficiary sends: "Aadhaar, card type & ration card no."
+   - Shopkeeper sends: "Shop license & location details".
+   - Internal Routing: Process 1.0 takes all this inbound data and sends "Store user & shop records" into the [D1 Users & Shops DB].
+
+2. Flow into Process 2.0 (Supply Allocation):
+   - Admin sends: "Trigger monthly demand calculation".
+   - Internal Routing: Process 2.0 sends a request to [D1] to "Read active user count per card type". Using this data, it communicates with [D2 Stock & Balances DB] to "Read prev surplus & write assigned stock", essentially calculating what needs to be shipped.
+
+3. Flow into Process 3.0 (Inventory Sync):
+   - Shopkeeper sends: "Verify & receive incoming shipment" (acknowledging physical delivery).
+   - Internal Routing: Process 3.0 sends "Update stock allocated quantity" to [D2], changing the shipment status from 'transit' to 'available stock'.
+
+4. Flow into Process 4.0 (Distribution):
+   - Beneficiary sends: "Present ration card for collection" (physical ID) to the Shopkeeper.
+   - Shopkeeper sends: "Submit user ID, item & quantity" to Process 4.0.
+   - Internal Routing: Process 4.0 sends "Update user balances & shop stock" into [D2], deducting the sold amount. It also outputs a "Receipt" to finalize the flow.
+
+
+=========================================
+Level 2 — Process 1.0: Auth & Registration
+=========================================
+This diagram details the atomic data steps for user and shop onboarding.
+
+- Step 1: Beneficiary sends "Name, Aadhaar, mobile & card type" to Process 1.1. Shopkeeper sends "Owner name, license no. & shop location" to Process 1.2.
+- Step 2: Both processes forward "Raw profile data" and "Raw shop data" to Process 1.3 (Hash & Store).
+- Step 3: Process 1.3 sends an "Insert record as pending status" data flow to both [D1 user_profiles] and [D2 shops] data stores.
+- Step 4: The Shopkeeper sends "Select user & confirm identity" to Process 1.4, which sends a "Set verified by shopkeeper = true" flag to [D1].
+- Step 5: The Admin sends a "Review pending registration list" trigger to Process 1.5, which subsequently sends "Set user/shop status to approved" data to both databases.
+
+
+=========================================
+Level 2 — Process 2.0: Supply Allocation
+=========================================
+This diagram details how the automated logistics data is calculated.
+
+- Step 1: Admin sends "Select shop & request demand report" to Process 2.1.
+- Step 2: Process 2.1 sends a "Count approved users by card type" query to [D1 user_profiles], returning the "User count per card type" to Process 2.2.
+- Step 3: Process 2.2 fetches "Quota quantity per item & card type" from [D2 quota logic], calculating the "Gross demand" and passing it to Process 2.3.
+- Step 4: Process 2.3 queries [D3 stock] to "Fetch leftover stock from previous month", passing the "Surplus per item" to Process 2.4.
+- Step 5: Process 2.4 calculates "Net = gross demand minus surplus" and outputs the suggested "Net Shipment".
+- Step 6: Admin sends "Confirm final allocation amounts" to Process 2.5, which sends an "Insert pending stock assignment record" into [D4 assigned_stock].
+
+
+=========================================
+Level 2 — Process 3.0: Inventory Sync
+=========================================
+This diagram maps the data flow when physical trucks arrive at the FPS shop.
+
+- Step 1: Shopkeeper sends an "Open dashboard for current month" request to Process 3.1.
+- Step 2: Process 3.1 queries [D1 assigned_stock] to "Fetch pending shipments" and displays the list to the Shopkeeper.
+- Step 3: Shopkeeper sends "Click verify after physical check" to Process 3.2.
+- Step 4: Process 3.2 sends an "Update shipment status to verified" command back to [D1]. It then passes the "Verified item name & quantity" to Process 3.3.
+- Step 5: Process 3.3 sends an "Add quantity to shop allocated stock" command to [D2 stock].
+- Step 6: Upon completion, Process 3.4 sends a "Log stock added event with timestamp" to [D3 stock_history] for audit purposes.
+
+
+=========================================
+Level 2 — Process 4.0: Ration Distribution
+=========================================
+This diagram maps the exact data validation sequence for the core transaction loop.
+
+- Step 1: Beneficiary presents physical ID to Shopkeeper.
+- Step 2: Shopkeeper sends "Submit user ID, item name & amount" to Process 4.1.
+- Step 3: Process 4.1 queries [D1 user_profiles] to "Verify user belongs to this shop". If valid, "Identity confirmed" is passed to 4.2.
+- Step 4: Process 4.2 queries [D2 user_balances] to "Check remaining quota for current month". If sufficient, "Quota is sufficient" is passed to 4.3.
+- Step 5: Process 4.3 queries [D3 stock] to "Check available stock in shop inventory". If available, "Stock is available" is passed to 4.4.
+- Step 6: Process 4.4 executes an atomic update, sending "Subtract requested amount" to [D2] and "Subtract distributed amount" to [D3].
+- Step 7: Process 4.5 receives confirmation and sends a "Log collection & distribution event" to [D4 audit_logs], simultaneously outputting a "Physical goods & digital receipt" back to the Beneficiary.

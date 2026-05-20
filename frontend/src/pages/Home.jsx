@@ -14,7 +14,7 @@ const Home = () => {
   };
 
   return (
-    <div className="auth-page">
+    <div className="auth-page ">
       {/* Navbar */}
       <nav className="navbar">
         <div className="navbar-inner">
@@ -34,7 +34,7 @@ const Home = () => {
       </nav>
 
       {/* Hero Section */}
-      <section className="hero">
+      <section className="hero ">
         <div className="hero-badge">
           🇮🇳 Government of India Initiative
         </div>

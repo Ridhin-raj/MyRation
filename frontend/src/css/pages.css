@@ -89,6 +89,11 @@
   letter-spacing: -0.02em;
 }
 
+.bg {
+  background-image: url("/bg.png");
+  
+}
+
 .hero h1 span {
   background: linear-gradient(135deg, var(--primary), var(--accent-light));
   -webkit-background-clip: text;
